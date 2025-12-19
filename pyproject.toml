@@ -14,3 +14,8 @@ dependencies = [
     "python-telegram-bot>=22.5",
     "sqlitedict>=2.1.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
