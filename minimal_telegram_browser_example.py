@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""
-Minimal example: Telegram bot that can trigger browser automation with user interaction.
 
-Flow:
-1. User sends message to bot
-2. If message contains "book gym", trigger browser automation
-3. Browser agent asks questions via Telegram
-4. User responds in same conversation
-5. Browser completes and reports back
-"""
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -22,6 +13,7 @@ from telegram.ext import (
 from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.llm.openai.chat import ChatOpenAI
+from pydantic_ai import Agent as PydanticAgent, RunContext
 
 # Load environment variables
 load_dotenv()
@@ -30,6 +22,16 @@ TOKEN = os.getenv('TELEGRAM_API_KEY')
 if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
 
+
+# Create orchestrator agent (no deps needed for simple tools)
+orchestrator_agent = PydanticAgent(
+    'openai:gpt-4o-mini',
+    system_prompt="""You are a personal assistant bot that helps users with tasks like:
+- Booking gym sessions (requires browser automation)
+- General questions and conversation
+- Creating reminders (future feature)
+"""
+)
 
 def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -78,6 +80,7 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
         # Wait for user to respond
         await state['response_event'].wait()
 
+
         # Get the response
         user_response = state['user_response']
         state['waiting_for_response'] = False
@@ -89,8 +92,31 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
             long_term_memory=memory
         )
 
-    return controller
+    @controller.registry.action('Send the user a final update via Telegram before ending the session')
+    async def send_final_update(message: str) -> ActionResult:
+        """
+        Send a final informational message to the user via Telegram (no response needed). 
+        Typically when a session is booked, nothing is available or an error occurred.
 
+        Args:
+            message: The message to send to the user
+
+        Returns:
+            ActionResult confirming the message was sent
+        """
+        text = f"🤖 Browser Agent final update:\n\n{message}"
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text
+        )
+
+        return ActionResult(
+                is_done=True,
+                success=False,
+                long_term_memory=text
+        )
+
+    return controller
 
 async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYPE, task: str):
     """
@@ -114,6 +140,8 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
         browser=browser,
         controller=controller,
         use_vision=True,
+        sensitive_data= {"x_user": "vincent.v.claes@gmail.com", "x_pass": os.getenv("QORE_PASSWORD")}
+
     )
 
     try:
@@ -131,9 +159,48 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
     finally:
         await browser.close()
 
+LAUNCH_SIGNAL = True
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages."""
+    global LAUNCH_SIGNAL
+    if LAUNCH_SIGNAL:
+        @orchestrator_agent.tool
+        async def dispatch_browser(ctx: RunContext, task_description: str) -> str:
+            """Trigger browser automation for tasks like booking gym, browsing websites, etc.
+
+            Args:
+                task_description: Clear description of what the browser should do
+            """
+
+            task_description = f"""
+            Go to https://qore.clubplanner.be/ and login with x_user and x_pass to login, 
+            just fill in the values of sensitive_data x_user is the key for username and x_pass is the key for password.
+
+            Steps:
+            1. go to https://qore.clubplanner.be/Reservation/NewReservation/1 
+            2. Read carefully the selected date and the available sessions.
+            3. List the sessions with date / time / name of the session / amount of available spots.
+            4. IF there is at least an available spot, show the user the "date / time / name of the session / amount of available spots" for each available spot.
+            6. Only after receiving confirmation via ask_user, proceed with the booking.
+            7. you should receive a popup/confirmation message after booking, capture that and report back to me.
+            8. double check the booking by navigating to 'My Reservations' page and confirm the session is listed there.
+            9. Send a final_update message and the details of the booked session.
+            10. ELSE IF there is no available spot, continue to the next date in the UI and repeat steps 2-4 until you find an available spot 
+            11. IF you reach the end of the available dates, send a final_update message there are no spots available.
+
+            Do NOT book anything without explicit confirmation using the ask_user tool.
+            If the users cancel or do not confirm, do not proceed with booking and stop the process.
+            """
+            # Start browser automation in background so message handler stays free
+            context.application.create_task(
+                run_browser_automation(update.effective_chat.id, context, task_description)
+            )
+            return "Started browser automation in background"
+
+        LAUNCH_SIGNAL = False
+            
+
     user = update.effective_user
     message_text = update.message.text
     print(f"Received from {user.first_name}: {message_text}")
@@ -148,27 +215,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             state['response_event'].set()
             return
 
-    # Check if user wants browser automation
-    if 'browse' in message_text.lower() or 'book' in message_text.lower():
-        # Simple task for testing
-        task = """
-        Go to https://example.com
-        Then use the ask_user action to ask me: "What website should I visit next?"
-        Wait for my response and navigate to that website.
-        Then use ask_user again to ask: "Should I take a screenshot? (yes/no)"
-        If yes, describe what you see on the page.
-        """
 
-        # Run browser automation as background task (non-blocking)
-        context.application.create_task(
-            run_browser_automation(update.effective_chat.id, context, task)
-        )
-    else:
-        # Normal conversation
-        await update.message.reply_text(
-            f"You said: {message_text}\n\n"
-            f"Try saying 'browse' or 'book' to trigger browser automation!"
-        )
+    # Use orchestrator agent to decide what to do
+    print("🤔 Orchestrator agent analyzing message...")
+    result = await orchestrator_agent.run(message_text)
+
+    # Extract the tool result (agent returns the last tool call result as output)
+    output = result.output
+    await update.message.reply_text(output)
+
 
 
 def main() -> None:
