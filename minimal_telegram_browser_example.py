@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import datetime
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -156,8 +157,6 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
             chat_id=chat_id,
             text=f"❌ Error during automation: {e}"
         )
-    finally:
-        await browser.close()
 
 LAUNCH_SIGNAL = True
 
@@ -172,24 +171,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             Args:
                 task_description: Clear description of what the browser should do
             """
-
+            current_date = datetime.datetime.now().strftime("%Y-%m-%d")
             task_description = f"""
             Go to https://qore.clubplanner.be/ and login with x_user and x_pass to login, 
             just fill in the values of sensitive_data x_user is the key for username and x_pass is the key for password.
 
             Steps:
-            1. go to https://qore.clubplanner.be/Reservation/NewReservation/1 
-            2. Read carefully the selected date and the available sessions.
-            3. List the sessions with date / time / name of the session / amount of available spots.
-            4. IF there is at least an available spot, show the user the "date / time / name of the session / amount of available spots" for each available spot.
+            1. Go to https://qore.clubplanner.be/Reservation/NewReservation/1 
+            2. First look at the page and describe all the elements you see and interpret them. Use this info for your next actions.
+            3. Read carefully the selected date and the available sessions.
+            4. List the sessions with date / time / name of the session / amount of available spots.
+            5. IF there is at least an available spot, show the user the "date / time / name of the session / amount of available spots" for each available spot.
             6. Only after receiving confirmation via ask_user, proceed with the booking.
             7. you should receive a popup/confirmation message after booking, capture that and report back to me.
             8. double check the booking by navigating to 'My Reservations' page and confirm the session is listed there.
-            9. Send a final_update message and the details of the booked session.
+            9. use the controller tool send_final_update message and the details of the booked session.
             10. ELSE IF there is no available spot, continue to the next date in the UI and repeat steps 2-4 until you find an available spot 
-            11. IF you reach the end of the available dates, send a final_update message there are no spots available.
+            11. IF you reach the end of the available dates, use the controller tool send_final_update and message there are no spots available.
+
+            TIP: It is currently {current_date}. You can find the day of the month in the class "btn cal_btn btn-xs disabled" and the month embedded in the button under class "hidden-xs".
+            Use this information to click on the correct button to select the requested date.
 
             Do NOT book anything without explicit confirmation using the ask_user tool.
+            If you reply with multiple options use numbering the list so the user can respond with the number of the option they want to book.
             If the users cancel or do not confirm, do not proceed with booking and stop the process.
             """
             # Start browser automation in background so message handler stays free
