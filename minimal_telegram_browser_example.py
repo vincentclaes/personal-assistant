@@ -173,28 +173,81 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             """
             current_date = datetime.datetime.now().strftime("%Y-%m-%d")
             task_description = f"""
-            Go to https://qore.clubplanner.be/ and login with x_user and x_pass to login, 
-            just fill in the values of sensitive_data x_user is the key for username and x_pass is the key for password.
+                Go to https://qore.clubplanner.be/ and log in using sensitive_data:
+                - x_user = username
+                - x_pass = password
 
-            Steps:
-            1. Go to https://qore.clubplanner.be/Reservation/NewReservation/1 
-            2. First look at the page and describe all the elements you see and interpret them. Use this info for your next actions.
-            3. Read carefully the selected date and the available sessions.
-            4. List the sessions with date / time / name of the session / amount of available spots.
-            5. IF there is at least an available spot, show the user the "date / time / name of the session / amount of available spots" for each available spot.
-            6. Only after receiving confirmation via ask_user, proceed with the booking.
-            7. you should receive a popup/confirmation message after booking, capture that and report back to me.
-            8. double check the booking by navigating to 'My Reservations' page and confirm the session is listed there.
-            9. use the controller tool send_final_update message and the details of the booked session.
-            10. ELSE IF there is no available spot, continue to the next date in the UI and repeat steps 2-4 until you find an available spot 
-            11. IF you reach the end of the available dates, use the controller tool send_final_update and message there are no spots available.
+                After login, navigate to:
+                https://qore.clubplanner.be/Reservation/NewReservation/1
 
-            TIP: It is currently {current_date}. You can find the day of the month in the class "btn cal_btn btn-xs disabled" and the month embedded in the button under class "hidden-xs".
-            Use this information to click on the correct button to select the requested date.
+                ────────────────────────────────
+                DOM FACTS (do not infer differently)
+                ────────────────────────────────
+                - The booking UI is contained in <div id="divnewreservation">.
+                - Date selection buttons are <button> elements with class "cal_btn".
+                - Disabled (unclickable) dates have class "disabled".
+                - Clickable dates match: button.cal_btn:not(.disabled).
+                - The day number is the numeric text directly inside the button.
+                - The month is the text inside the child element <h6 class="hidden-xs"> (e.g. "dec", "jan").
+                - The year is inferred from DOM order relative to <h4 class="has-warning"> headers
+                (e.g. "januari 2026"): buttons after belong to that year; buttons before belong to the previous year.
+                - Clicking a date triggers JavaScript getitems(...) and dynamically loads sessions.
+                - Available sessions are rendered only inside <div id="divItems">.
+                - The reservation/booking UI appears inside <div id="divreservationmember">.
 
-            Do NOT book anything without explicit confirmation using the ask_user tool.
-            If you reply with multiple options use numbering the list so the user can respond with the number of the option they want to book.
-            If the users cancel or do not confirm, do not proceed with booking and stop the process.
+                ────────────────────────────────
+                PROCESS
+                ────────────────────────────────
+                1. Observe the page structure and confirm the presence of:
+                - #divnewreservation
+                - date buttons (button.cal_btn)
+                - #divItems (initially empty)
+
+                2. Determine the currently selected date from the UI.
+
+                3. Read all sessions displayed inside #divItems and extract:
+                - date
+                - time
+                - session name
+                - amount of available spots
+
+                4. List all sessions in the format:
+                "date / time / session name / available spots"
+
+                5. IF one or more sessions have at least one available spot:
+                - Present only the available sessions to the user.
+                - Number the list so the user can respond with a selection.
+                - STOP and wait for explicit confirmation using ask_user.
+
+                6. ONLY after explicit confirmation:
+                - Proceed with booking the selected session.
+                - Capture and report any popup or confirmation message.
+
+                7. Verify the booking by navigating to:
+                "Mijn Reservaties" (/Reservation/Reservations)
+                - Confirm the booked session appears in the list.
+
+                8. Send the final booking details using controller.send_final_update.
+
+                9. IF no sessions on the selected date have availability:
+                - Click the next button.cal_btn:not(.disabled) in DOM order.
+                - Repeat steps 2–4.
+
+                10. IF all available dates are exhausted:
+                    - Use controller.send_final_update to report that no spots are available.
+
+                ────────────────────────────────
+                RULES
+                ────────────────────────────────
+                - Do NOT book anything without explicit confirmation via ask_user.
+                - Do NOT assume sessions exist outside #divItems.
+                - Do NOT infer dates from disabled buttons only.
+                - Follow DOM order when iterating dates.
+                - Stop immediately once a bookable session is found and presented to the user.
+
+                TIP:
+                It is currently {current_date}. Use the day number text and the month text inside
+                each button.cal_btn to identify and select the correct date.
             """
             # Start browser automation in background so message handler stays free
             context.application.create_task(
