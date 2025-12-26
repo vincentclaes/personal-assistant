@@ -15,6 +15,13 @@ from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.llm.openai.chat import ChatOpenAI
 from pydantic_ai import Agent as PydanticAgent, RunContext
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    SystemPromptPart
+)
+from pydantic_core import to_jsonable_python
+from sqlitedict import SqliteDict
 
 # Load environment variables
 load_dotenv()
@@ -23,15 +30,96 @@ TOKEN = os.getenv('TELEGRAM_API_KEY')
 if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
 
+# Database for user chat history (single connection for entire app lifecycle)
+DB_PATH = "app.db"
+user_db = SqliteDict(DB_PATH, autocommit=True)
 
-# Create orchestrator agent (no deps needed for simple tools)
-orchestrator_agent = PydanticAgent(
-    'openai:gpt-4o-mini',
-    system_prompt="""You are a personal assistant bot that helps users with tasks like:
+
+def get_user_chat_history(user_id: int):
+    """
+    Get chat history for a user from the database.
+
+    Args:
+        user_id: Telegram user ID
+
+    Returns:
+        List of pydantic_ai messages or empty list if user is new
+    """
+    if user_id not in user_db:
+        return []
+
+    user_entry = user_db[user_id]
+    chat_history_json = user_entry.get("chat_history", [])
+
+    if not chat_history_json:
+        return []
+
+    # Convert from JSON to pydantic_ai messages
+    return ModelMessagesTypeAdapter.validate_python(chat_history_json)
+
+
+def save_user_chat_history(user_id: int, user_data: dict, messages):
+    """
+    Save user data and chat history to the database.
+
+    Args:
+        user_id: Telegram user ID
+        user_data: Dictionary with user information (from telegram User object)
+        messages: List of pydantic_ai messages to save
+    """
+    # Convert messages to JSON-serializable format
+    messages_json = to_jsonable_python(messages)
+
+    user_db[user_id] = {
+        "user": user_data,
+        "chat_history": messages_json
+    }
+
+
+def update_system_prompt_in_history(messages: list) -> list:
+    """
+    Update or add system prompt in message history.
+
+    Args:
+        messages: List of pydantic_ai messages
+        new_system_prompt: The system prompt text to use
+
+    Returns:
+        Updated list of messages with current system prompt
+    """
+    if not messages:
+        return messages
+
+    # Check if first message has a system prompt
+    first_msg = messages[0]
+    if isinstance(first_msg, ModelRequest) and first_msg.parts:
+        first_part = first_msg.parts[0]
+
+        if isinstance(first_part, SystemPromptPart):
+            # Replace existing system prompt
+            new_parts = [SystemPromptPart(content=SYSTEM_PROMPT)] + list(first_msg.parts[1:])
+            updated_first = ModelRequest(parts=new_parts)
+            return [updated_first] + messages[1:]
+        else:
+            # Add system prompt at the beginning
+            new_parts = [SystemPromptPart(content=SYSTEM_PROMPT)] + list(first_msg.parts)
+            updated_first = ModelRequest(parts=new_parts)
+            return [updated_first] + messages[1:]
+
+    return messages
+
+
+# System prompt for the orchestrator agent
+SYSTEM_PROMPT = """You are a personal assistant bot that helps users with tasks like:
 - Booking gym sessions (requires browser automation)
 - General questions and conversation
 - Creating reminders (future feature)
 """
+
+# Create orchestrator agent (no deps needed for simple tools)
+orchestrator_agent = PydanticAgent(
+    'openai:gpt-4o-mini',
+    system_prompt=SYSTEM_PROMPT
 )
 
 def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
@@ -260,7 +348,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user = update.effective_user
     message_text = update.message.text
-    print(f"Received from {user.first_name}: {message_text}")
+    print(f"Received from {user.first_name} ({user.id}): {message_text}")
 
     # Check if browser is waiting for response
     if 'browser_state' in context.user_data:
@@ -272,10 +360,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             state['response_event'].set()
             return
 
+    # Load chat history for this user
+    user_id = user.id
+    chat_history = get_user_chat_history(user_id)
+    # Update system prompt in history to ensure latest prompt is used
+    chat_history = update_system_prompt_in_history(chat_history)
 
     # Use orchestrator agent to decide what to do
     print("🤔 Orchestrator agent analyzing message...")
-    result = await orchestrator_agent.run(message_text)
+    result = await orchestrator_agent.run(message_text, message_history=chat_history)
+
+    # Save updated chat history (includes both user message and agent response)
+    user_data = {
+        "id": user.id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "username": user.username,
+    }
+    all_messages = result.all_messages()
+    save_user_chat_history(user_id, user_data, all_messages)
 
     # Extract the tool result (agent returns the last tool call result as output)
     output = result.output
