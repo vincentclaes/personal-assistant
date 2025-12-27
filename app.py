@@ -618,16 +618,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 
+async def post_init(application: Application) -> None:
+    """Initialize scheduler after event loop is running."""
+    scheduler.start()
+    print(f"✓ Scheduler started (timezone: {TIMEZONE})")
+
+async def post_shutdown(application: Application) -> None:
+    """Cleanup scheduler on shutdown."""
+    scheduler.shutdown(wait=True)
+    schedules_store.close()
+    print("✓ Scheduler stopped")
+
 def main() -> None:
     """Start the bot."""
     print("Starting Telegram bot with scheduler...")
 
-    # Start scheduler
-    scheduler.start()
-    print(f"✓ Scheduler started (timezone: {TIMEZONE})")
-
     # Create application
     application = Application.builder().token(TOKEN).concurrent_updates(False).build()
+
+    # Register startup and shutdown hooks
+    application.post_init = post_init
+    application.post_shutdown = post_shutdown
 
     # Add message handler
     application.add_handler(
@@ -637,14 +648,7 @@ def main() -> None:
     # Run the bot
     print("Bot is running! Send messages to interact.")
     print("Press Ctrl-C to stop.")
-
-    try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    finally:
-        # Shutdown scheduler on exit
-        scheduler.shutdown(wait=True)
-        schedules_store.close()
-        print("✓ Scheduler stopped")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
