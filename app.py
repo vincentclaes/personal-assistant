@@ -223,8 +223,19 @@ def update_system_prompt_in_history(messages: list) -> list:
 # System prompt for the orchestrator agent
 SYSTEM_PROMPT = """You are a personal assistant bot that helps users with tasks like:
 - Booking gym sessions (requires browser automation)
+- Creating and managing recurring schedules for tasks
+- Listing active schedules
+- Canceling schedules
 - General questions and conversation
-- Creating reminders (future feature)
+
+When users ask to create schedules:
+1. Extract the schedule details (task type, day of week, time)
+2. Always confirm with the user before creating the schedule
+3. Use create_user_schedule tool to create the schedule
+
+Available task types:
+- "gym_booking": Automated gym session booking
+- "reminder": Simple reminder messages (implementation pending)
 """
 
 # Create orchestrator agent (no deps needed for simple tools)
@@ -453,6 +464,116 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 run_browser_automation(update.effective_chat.id, context, task_description)
             )
             return "Started browser automation in background"
+
+        @orchestrator_agent.tool
+        async def create_user_schedule(
+            ctx: RunContext,
+            task_type: str,
+            schedule_description: str,
+            cron_hour: int,
+            cron_minute: int = 0,
+            cron_day_of_week: str = None,
+            preferences: dict = None
+        ) -> str:
+            """Create a recurring schedule for tasks like gym bookings or reminders.
+
+            Args:
+                task_type: Type of task (e.g., "gym_booking", "reminder")
+                schedule_description: Human-readable description (e.g., "every Monday at 7am")
+                cron_hour: Hour (0-23) for execution
+                cron_minute: Minute (0-59) for execution (default: 0)
+                cron_day_of_week: Day of week (mon, tue, wed, thu, fri, sat, sun) or None for daily
+                preferences: Optional task-specific preferences (e.g., preferred time slots)
+
+            Returns:
+                Confirmation message with schedule ID
+            """
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+
+            try:
+                schedule_id = await create_schedule(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    task_type=task_type,
+                    cron_hour=cron_hour,
+                    cron_minute=cron_minute,
+                    cron_day_of_week=cron_day_of_week,
+                    preferences=preferences or {},
+                    original_request=schedule_description
+                )
+
+                return f"✓ Schedule created! ID: {schedule_id}\n{schedule_description}"
+            except Exception as e:
+                return f"Error creating schedule: {e}"
+
+        @orchestrator_agent.tool
+        async def list_user_schedules(ctx: RunContext) -> str:
+            """List all active schedules for the current user.
+
+            Returns:
+                Formatted list of schedules or message if none exist
+            """
+            user_id = update.effective_user.id
+            schedules = schedules_store.list_schedules_for_user(user_id)
+
+            if not schedules:
+                return "You have no active schedules."
+
+            lines = ["Your active schedules:\n"]
+            for schedule in schedules:
+                schedule_id = schedule["schedule_id"]
+                task_type = schedule["task_type"]
+                original_request = schedule["original_request"]
+
+                # Get next run time from scheduler
+                job = scheduler.get_job(schedule_id)
+                if job:
+                    next_run = job.next_fire_time
+                    next_run_str = next_run.strftime('%Y-%m-%d %H:%M %Z') if next_run else "Not scheduled"
+                else:
+                    next_run_str = "Job not found in scheduler"
+
+                lines.append(f"• {original_request}")
+                lines.append(f"  Type: {task_type}")
+                lines.append(f"  ID: {schedule_id}")
+                lines.append(f"  Next run: {next_run_str}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+        @orchestrator_agent.tool
+        async def cancel_user_schedule(ctx: RunContext, schedule_id: str) -> str:
+            """Cancel a scheduled task.
+
+            Args:
+                schedule_id: The schedule ID to cancel (from list_user_schedules)
+
+            Returns:
+                Confirmation message
+            """
+            user_id = update.effective_user.id
+
+            # Verify schedule belongs to user
+            schedule = schedules_store.get_schedule(schedule_id)
+            if not schedule:
+                return f"Error: Schedule {schedule_id} not found"
+
+            if schedule["user_id"] != user_id:
+                return "Error: You can only cancel your own schedules"
+
+            # Remove from scheduler and database
+            try:
+                scheduler.remove_job(schedule_id)
+            except Exception as e:
+                print(f"Warning: Could not remove job from scheduler: {e}")
+
+            deleted = schedules_store.delete_schedule(schedule_id)
+
+            if deleted:
+                return f"✓ Schedule {schedule_id} cancelled successfully"
+            else:
+                return f"Error: Could not delete schedule {schedule_id}"
 
         LAUNCH_SIGNAL = False
             
