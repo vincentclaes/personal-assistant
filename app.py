@@ -59,6 +59,9 @@ def create_scheduler() -> AsyncIOScheduler:
 scheduler = create_scheduler()
 schedules_store = SchedulesStore(DB_PATH, table_name="schedules")
 
+# Global reference to bot application (set in post_init)
+bot_application = None
+
 
 async def execute_scheduled_task(schedule_id: str) -> None:
     """
@@ -80,9 +83,34 @@ async def execute_scheduled_task(schedule_id: str) -> None:
     print(f"Executing {task_type} for schedule {schedule_id}, chat {chat_id}")
     print(f"Preferences: {preferences}")
 
-    # Task-specific execution logic goes here
-    # This will be implemented in later tasks
-    # For now, just log that we would execute the task
+    if not bot_application:
+        print("Error: Bot application not initialized")
+        return
+
+    # Task-specific execution logic
+    try:
+        if task_type == "reminder":
+            # Send reminder message
+            message = preferences.get("message", "This is your reminder!")
+            await bot_application.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔔 Reminder: {message}"
+            )
+            print(f"✓ Reminder sent to chat {chat_id}")
+
+        elif task_type == "gym_booking":
+            # Gym booking execution will be implemented in later tasks
+            await bot_application.bot.send_message(
+                chat_id=chat_id,
+                text="🏋️ Gym booking automation will run here (not yet implemented)"
+            )
+            print(f"✓ Gym booking notification sent to chat {chat_id}")
+
+        else:
+            print(f"Warning: Unknown task type: {task_type}")
+
+    except Exception as e:
+        print(f"Error executing task {schedule_id}: {e}")
 
 
 async def create_schedule(
@@ -620,6 +648,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def post_init(application: Application) -> None:
     """Initialize scheduler after event loop is running."""
+    global bot_application
+    bot_application = application
     scheduler.start()
     print(f"✓ Scheduler started (timezone: {TIMEZONE})")
 
