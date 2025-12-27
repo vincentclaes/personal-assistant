@@ -60,6 +60,92 @@ scheduler = create_scheduler()
 schedules_store = SchedulesStore(DB_PATH, table_name="schedules")
 
 
+async def execute_scheduled_task(schedule_id: str) -> None:
+    """
+    Execute a scheduled task based on its configuration.
+
+    Args:
+        schedule_id: Schedule ID from schedules_store
+    """
+    # Load schedule metadata
+    schedule = schedules_store.get_schedule(schedule_id)
+    if not schedule:
+        print(f"Error: No schedule found for {schedule_id}")
+        return
+
+    task_type = schedule["task_type"]
+    chat_id = schedule["chat_id"]
+    preferences = json.loads(schedule.get("preferences", "{}"))
+
+    print(f"Executing {task_type} for schedule {schedule_id}, chat {chat_id}")
+    print(f"Preferences: {preferences}")
+
+    # Task-specific execution logic goes here
+    # This will be implemented in later tasks
+    # For now, just log that we would execute the task
+
+
+async def create_schedule(
+    user_id: int,
+    chat_id: int,
+    task_type: str,
+    cron_hour: int,
+    cron_minute: int = 0,
+    cron_day_of_week: str | None = None,
+    preferences: dict[str, Any] | None = None,
+    original_request: str = ""
+) -> str:
+    """
+    Create a generic recurring schedule for any task type.
+
+    Args:
+        user_id: Telegram user ID
+        chat_id: Telegram chat ID
+        task_type: Type of task (e.g., 'gym_booking', 'reminder', etc.)
+        cron_hour: Hour (0-23) for execution
+        cron_minute: Minute (0-59) for execution
+        cron_day_of_week: Day of week (mon, tue, wed, thu, fri, sat, sun) or None for daily
+        preferences: Task-specific preferences
+        original_request: Original natural language request
+
+    Returns:
+        Schedule ID
+    """
+    # Generate unique schedule ID
+    import uuid
+    schedule_id = f"{task_type}_{user_id}_{uuid.uuid4().hex[:8]}"
+
+    # Store schedule in database
+    schedules_store.create_schedule(
+        schedule_id=schedule_id,
+        user_id=user_id,
+        chat_id=chat_id,
+        task_type=task_type,
+        cron_hour=cron_hour,
+        cron_minute=cron_minute,
+        cron_day_of_week=cron_day_of_week,
+        preferences=json.dumps(preferences or {}),
+        original_request=original_request
+    )
+
+    # Create cron trigger
+    cron_params = {"hour": cron_hour, "minute": cron_minute, "timezone": TIMEZONE}
+    if cron_day_of_week:
+        cron_params["day_of_week"] = cron_day_of_week
+
+    trigger = CronTrigger(**cron_params)
+
+    # Add job to scheduler
+    scheduler.add_job(
+        execute_scheduled_task,
+        trigger=trigger,
+        args=[schedule_id],
+        id=schedule_id
+    )
+
+    return schedule_id
+
+
 def get_user_chat_history(user_id: int):
     """
     Get chat history for a user from the database.
