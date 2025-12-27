@@ -7,22 +7,24 @@ from datetime import datetime
 class SchedulesStore:
     """Store and retrieve cron-based schedules for users."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, table_name: str = "schedules"):
         """
         Initialize schedules store with SQLite.
 
         Args:
             db_path: Path to SQLite database file
+            table_name: Name of the table to use (default: "schedules")
         """
         self.db_path = db_path
+        self.table_name = table_name
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
 
     def _create_tables(self) -> None:
         """Create schedules table if it doesn't exist."""
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS schedules (
+        self.conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
                 schedule_id TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
                 chat_id INTEGER NOT NULL,
@@ -64,8 +66,8 @@ class SchedulesStore:
             preferences: JSON string of task preferences
             original_request: User's original natural language request
         """
-        self.conn.execute("""
-            INSERT INTO schedules
+        self.conn.execute(f"""
+            INSERT INTO {self.table_name}
             (schedule_id, user_id, chat_id, task_type, cron_hour, cron_minute,
              cron_day_of_week, preferences, original_request, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -86,7 +88,7 @@ class SchedulesStore:
             Schedule dictionary or None if not found
         """
         cursor = self.conn.execute(
-            "SELECT * FROM schedules WHERE schedule_id = ?",
+            f"SELECT * FROM {self.table_name} WHERE schedule_id = ?",
             (schedule_id,)
         )
         row = cursor.fetchone()
@@ -103,7 +105,7 @@ class SchedulesStore:
             List of schedule dictionaries
         """
         cursor = self.conn.execute(
-            "SELECT * FROM schedules WHERE user_id = ? AND enabled = 1",
+            f"SELECT * FROM {self.table_name} WHERE user_id = ? AND enabled = 1",
             (user_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -116,7 +118,7 @@ class SchedulesStore:
             List of schedule dictionaries
         """
         cursor = self.conn.execute(
-            "SELECT * FROM schedules WHERE enabled = 1"
+            f"SELECT * FROM {self.table_name} WHERE enabled = 1"
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -131,7 +133,7 @@ class SchedulesStore:
             True if deleted, False if not found
         """
         cursor = self.conn.execute(
-            "DELETE FROM schedules WHERE schedule_id = ?",
+            f"DELETE FROM {self.table_name} WHERE schedule_id = ?",
             (schedule_id,)
         )
         self.conn.commit()
@@ -148,7 +150,7 @@ class SchedulesStore:
             True if disabled, False if not found
         """
         cursor = self.conn.execute(
-            "UPDATE schedules SET enabled = 0 WHERE schedule_id = ?",
+            f"UPDATE {self.table_name} SET enabled = 0 WHERE schedule_id = ?",
             (schedule_id,)
         )
         self.conn.commit()

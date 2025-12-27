@@ -43,7 +43,6 @@ from typing import Any
 import json
 
 # Scheduler configuration
-SCHEDULES_DB_PATH = os.getenv("SCHEDULES_DB_PATH", "schedules.db")
 TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Brussels"))
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -56,9 +55,9 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     return scheduler
 
-# Initialize global scheduler and schedules store
+# Initialize global scheduler and schedules store (using same DB_PATH as user_db)
 scheduler = create_scheduler()
-schedules_store = SchedulesStore(SCHEDULES_DB_PATH)
+schedules_store = SchedulesStore(DB_PATH, table_name="schedules")
 
 
 def get_user_chat_history(user_id: int):
