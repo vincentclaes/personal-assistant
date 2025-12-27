@@ -34,6 +34,32 @@ if not TOKEN:
 DB_PATH = "app.db"
 user_db = SqliteDict(DB_PATH, autocommit=True)
 
+# Scheduler imports
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
+from schedules_store import SchedulesStore
+from typing import Any
+import json
+
+# Scheduler configuration
+SCHEDULES_DB_PATH = os.getenv("SCHEDULES_DB_PATH", "schedules.db")
+TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Brussels"))
+
+def create_scheduler() -> AsyncIOScheduler:
+    """
+    Create and configure APScheduler instance.
+
+    Returns:
+        Configured AsyncIOScheduler instance
+    """
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+    return scheduler
+
+# Initialize global scheduler and schedules store
+scheduler = create_scheduler()
+schedules_store = SchedulesStore(SCHEDULES_DB_PATH)
+
 
 def get_user_chat_history(user_id: int):
     """
@@ -388,7 +414,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     """Start the bot."""
-    print("Starting minimal Telegram + browser_use example...")
+    print("Starting Telegram bot with scheduler...")
+
+    # Start scheduler
+    scheduler.start()
+    print(f"✓ Scheduler started (timezone: {TIMEZONE})")
 
     # Create application
     application = Application.builder().token(TOKEN).concurrent_updates(False).build()
@@ -399,9 +429,16 @@ def main() -> None:
     )
 
     # Run the bot
-    print("Bot is running! Send 'browse' or 'book' to trigger browser automation.")
+    print("Bot is running! Send messages to interact.")
     print("Press Ctrl-C to stop.")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        # Shutdown scheduler on exit
+        scheduler.shutdown(wait=True)
+        schedules_store.close()
+        print("✓ Scheduler stopped")
 
 
 if __name__ == '__main__':
