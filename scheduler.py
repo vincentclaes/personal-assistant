@@ -54,10 +54,16 @@ def get_scheduler() -> AsyncIOScheduler:
 
 def start_scheduler() -> None:
     """Start the scheduler if not already running."""
+    import asyncio
+
     scheduler = get_scheduler()
     if not scheduler.running:
+        # Explicitly set the event loop for AsyncIOScheduler
+        loop = asyncio.get_running_loop()
+        scheduler._eventloop = loop
         scheduler.start()
-        logger.info("Scheduler started")
+        logger.info(f"Scheduler started with event loop {id(loop)} attached")
+        logger.info(f"Scheduler event loop: {id(scheduler._eventloop)}")
 
 
 def shutdown_scheduler() -> None:
