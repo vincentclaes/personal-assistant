@@ -8,11 +8,13 @@ from unittest.mock import patch
 
 import pytest
 
+import database
 import scheduler
 from scheduler import (
     add_user_job,
     get_user_jobs,
     remove_user_job,
+    shutdown_scheduler,
 )
 
 
@@ -28,18 +30,16 @@ def test_database():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db_path = Path(tmpdir) / "test_scheduler.db"
 
-        # Patch the DB_PATH and SCHEDULER_DB in scheduler module
-        with patch.object(scheduler, 'DB_PATH', tmpdir):
-            with patch.object(scheduler, 'SCHEDULER_DB', str(test_db_path)):
-                # Reset the singleton scheduler to force recreation with test DB
-                scheduler._scheduler = None
+        # Patch the DB_PATH in database module so scheduler picks it up
+        with patch.object(database, 'DB_PATH', str(test_db_path)):
+            # Reset the singleton scheduler to force recreation with test DB
+            scheduler._scheduler = None
 
-                yield
+            yield
 
-                # Clean up: shutdown scheduler and reset singleton
-                if scheduler._scheduler is not None and scheduler._scheduler.running:
-                    scheduler._scheduler.shutdown()
-                scheduler._scheduler = None
+            # Clean up: shutdown scheduler and reset singleton
+            shutdown_scheduler()
+            scheduler._scheduler = None
 
 
 def test_add_user_job_creates_namespaced_job_id():

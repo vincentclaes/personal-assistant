@@ -18,13 +18,13 @@ from apscheduler.triggers.date import DateTrigger
 from dotenv import load_dotenv
 from loguru import logger
 
+from database import DB_PATH
+
 # Load environment variables
 load_dotenv()
 
 # Configuration
 TIMEZONE = ZoneInfo(os.getenv('TIMEZONE', 'Europe/Brussels'))
-DB_PATH = os.getenv('DB_PATH', '.')
-SCHEDULER_DB = f"{DB_PATH}/app.db"
 
 # Singleton scheduler instance
 _scheduler: AsyncIOScheduler | None = None
@@ -41,13 +41,13 @@ def get_scheduler() -> AsyncIOScheduler:
 
     if _scheduler is None:
         jobstores = {
-            'default': SQLAlchemyJobStore(url=f'sqlite:///{SCHEDULER_DB}')
+            'default': SQLAlchemyJobStore(url=f'sqlite:///{DB_PATH}')
         }
         _scheduler = AsyncIOScheduler(
             jobstores=jobstores,
             timezone=TIMEZONE
         )
-        logger.info(f"Scheduler initialized with SQLite persistence ({SCHEDULER_DB})")
+        logger.info(f"Scheduler initialized with SQLite persistence ({DB_PATH})")
 
     return _scheduler
 

@@ -23,6 +23,8 @@ from pydantic_ai.messages import (
 from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
 
+from database import DB_PATH
+
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_API_KEY')
@@ -31,7 +33,6 @@ if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
 
 # Database for user chat history (single connection for entire app lifecycle)
-DB_PATH = "app.db"
 user_db = SqliteDict(DB_PATH, autocommit=True)
 
 
