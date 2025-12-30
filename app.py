@@ -3,10 +3,13 @@
 import datetime
 import os
 import asyncio
+from textwrap import dedent
 from dotenv import load_dotenv
+from loguru import logger
 from telegram import Update
 from telegram.ext import (
     Application,
+    CommandHandler,
     MessageHandler,
     filters,
     ContextTypes,
@@ -14,6 +17,7 @@ from telegram.ext import (
 from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.llm.openai.chat import ChatOpenAI
+
 from pydantic_ai import Agent as PydanticAgent, RunContext
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
@@ -23,7 +27,12 @@ from pydantic_ai.messages import (
 from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
 
+from apscheduler.job import Job as APSJob
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from telegram.ext._jobqueue import Job
+
 from database import DB_PATH
+from zoneinfo import ZoneInfo
 
 # Load environment variables
 load_dotenv()
@@ -98,12 +107,12 @@ def update_system_prompt_in_history(messages: list) -> list:
 
         if isinstance(first_part, SystemPromptPart):
             # Replace existing system prompt
-            new_parts = [SystemPromptPart(content=SYSTEM_PROMPT)] + list(first_msg.parts[1:])
+            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(first_msg.parts[1:])
             updated_first = ModelRequest(parts=new_parts)
             return [updated_first] + messages[1:]
         else:
             # Add system prompt at the beginning
-            new_parts = [SystemPromptPart(content=SYSTEM_PROMPT)] + list(first_msg.parts)
+            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(first_msg.parts)
             updated_first = ModelRequest(parts=new_parts)
             return [updated_first] + messages[1:]
 
@@ -111,17 +120,20 @@ def update_system_prompt_in_history(messages: list) -> list:
 
 
 # System prompt for the orchestrator agent
-SYSTEM_PROMPT = """You are a personal assistant bot that helps users with tasks like:
-- Booking gym sessions (requires browser automation)
-- General questions and conversation
-- Creating reminders (future feature)
-"""
+def get_agent_system_prompt():
+    return dedent(f"""
+    You are a personal assistant bot that helps users with tasks like:
+    - Booking gym sessions (requires browser automation)
+    - Scheduling reminders for specific dates and times
+    - General questions and conversation
+    
+    The current datetime is {datetime.datetime.now()}.
+
+    When booking gym sessions, use the dispatch_browser tool with a clear task description.
+    For reminders, use the schedule_reminder tool with the message and a datetime object.
+    """)
 
 # Create orchestrator agent (no deps needed for simple tools)
-orchestrator_agent = PydanticAgent(
-    'openai:gpt-4o-mini',
-    system_prompt=SYSTEM_PROMPT
-)
 
 def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -247,116 +259,326 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
             text=f"❌ Error during automation: {e}"
         )
 
-LAUNCH_SIGNAL = True
+class PTBSQLiteJobStore(SQLAlchemyJobStore):
+    """SQLite jobstore that makes telegram.ext.Job class storable."""
+
+    def __init__(self, application: Application, url: str = "sqlite:///bot.db") -> None:
+        """Initialize with Application instance and SQLite database path.
+
+        Args:
+            application: Application instance for CallbackContext recreation
+            url: SQLite database URL (default: sqlite:///bot.db)
+        """
+        self.application = application
+        super().__init__(url=url)
+
+    @staticmethod
+    def _prepare_job(job: APSJob) -> APSJob:
+        """Prepare job for storage by extracting Telegram-specific data."""
+        prepped_job = APSJob.__new__(APSJob)
+        prepped_job.__setstate__(job.__getstate__())
+        tg_job = Job.from_aps_job(job)
+        prepped_job.args = (
+            tg_job.name,
+            tg_job.data,
+            tg_job.chat_id,
+            tg_job.user_id,
+            tg_job.callback,
+        )
+        return prepped_job
+
+    def _restore_job(self, job: APSJob) -> APSJob:
+        """Restore Telegram-specific job data after loading from database."""
+        name, data, chat_id, user_id, callback = job.args
+        tg_job = Job(
+            callback=callback,
+            chat_id=chat_id,
+            user_id=user_id,
+            name=name,
+            data=data,
+        )
+        job._modify(
+            args=(
+                self.application.job_queue,
+                tg_job,
+            )
+        )
+        return job
+
+    def add_job(self, job: APSJob) -> None:
+        """Persist newly added job to database."""
+        job = self._prepare_job(job)
+        super().add_job(job)
+
+    def update_job(self, job: APSJob) -> None:
+        """Update existing job in database."""
+        job = self._prepare_job(job)
+        super().update_job(job)
+
+    def _reconstitute_job(self, job_state: bytes) -> APSJob:
+        """Reconstruct job from pickled state retrieved from database."""
+        job: APSJob = super()._reconstitute_job(job_state)
+        return self._restore_job(job)
+
+async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    JobQueue callback for sending reminders.
+
+    This function is called by the Telegram JobQueue when a reminder is due.
+    It accesses the message and chat_id from the job's context.
+
+    Args:
+        context: Telegram context containing job data and bot instance
+    """
+    job = context.job
+    message = job.data["message"]
+    chat_id = job.chat_id
+
+    logger.info(f"⏰ REMINDER TRIGGERED for chat_id={chat_id}: {message}")
+    formatted_message = f"🔔 Reminder: {message}"
+
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=formatted_message)
+        logger.info("✅ Reminder sent successfully")
+    except Exception as e:
+        logger.info(f"❌ Error sending reminder: {e}")
+
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages."""
-    global LAUNCH_SIGNAL
-    if LAUNCH_SIGNAL:
-        @orchestrator_agent.tool
-        async def dispatch_browser(ctx: RunContext, task_description: str) -> str:
-            """Trigger browser automation for tasks like booking gym, browsing websites, etc.
+    
+    orchestrator_agent = PydanticAgent(
+        'openai:gpt-5-mini',
+        system_prompt=get_agent_system_prompt()
+    )
 
-            Args:
-                task_description: Clear description of what the browser should do
-            """
-            current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-            task_description = f"""
-                Go to https://qore.clubplanner.be/ and log in using sensitive_data:
-                - x_user = username
-                - x_pass = password
+    @orchestrator_agent.tool
+    def schedule_reminder(
+        ctx: RunContext,
+        message: str,
+        cron_expression: str,
+        start_datetime: datetime.datetime | None = None,
+        end_datetime: datetime.datetime | None = None,
+        timezone_str: str = "Europe/Brussels"
+    ) -> str:
+        """
+        Schedule a recurring reminder using a cron expression with optional start/end times.
 
-                After login, navigate to:
-                https://qore.clubplanner.be/Reservation/NewReservation/1
+        Args:
+            message: The reminder message to send to the user
 
-                ────────────────────────────────
-                DOM FACTS (do not infer differently)
-                ────────────────────────────────
-                - The booking UI is contained in <div id="divnewreservation">.
-                - Date selection buttons are <button> elements with class "cal_btn".
-                - Disabled (unclickable) dates have class "disabled".
-                - Clickable dates match: button.cal_btn:not(.disabled).
-                - The day number is the numeric text directly inside the button.
-                - The month is the text inside the child element <h6 class="hidden-xs"> (e.g. "dec", "jan").
-                - The year is inferred from DOM order relative to <h4 class="has-warning"> headers
-                (e.g. "januari 2026"): buttons after belong to that year; buttons before belong to the previous year.
-                - Clicking a date triggers JavaScript getitems(...) and dynamically loads sessions.
-                - Available sessions are rendered only inside <div id="divItems">.
-                - The reservation/booking UI appears inside <div id="divreservationmember">.
+            cron_expression: 6-field cron string that defines when the reminder repeats.
+                Format: "second minute hour day month day_of_week"
 
-                ────────────────────────────────
-                PROCESS
-                ────────────────────────────────
-                1. Observe the page structure and confirm the presence of:
-                - #divnewreservation
-                - date buttons (button.cal_btn)
-                - #divItems (initially empty)
+                Examples:
+                - "*/10 * * * * *" = Every 10 seconds (fires at 0, 10, 20, 30, 40, 50 seconds)
+                - "0 */5 * * * *" = Every 5 minutes (fires at minute 0, 5, 10, 15, etc.)
+                - "0 0 9 * * *" = Every day at 9:00 AM
+                - "0 30 14 * * 1-5" = Every weekday (Mon-Fri) at 2:30 PM
+                - "0 0 * * * *" = Every hour on the hour
 
-                2. Determine the currently selected date from the UI.
+                Field descriptions:
+                - second: 0-59 or */N for every N seconds
+                - minute: 0-59 or */N for every N minutes
+                - hour: 0-23 or */N for every N hours
+                - day: 1-31 (day of month)
+                - month: 1-12 or jan,feb,mar,...
+                - day_of_week: 0-6 (0=Monday) or mon,tue,wed,thu,fri,sat,sun
 
-                3. Read all sessions displayed inside #divItems and extract:
-                - date
-                - time
-                - session name
-                - amount of available spots
+                Use "*" to match any value for that field.
+                Use "*/N" to match every Nth value (e.g., */10 for every 10 seconds).
 
-                4. List all sessions in the format:
-                "date / time / session name / available spots"
+            start_datetime: Optional. When to start executing this cron schedule.
+                If not provided, starts immediately.
+                Use this to delay the start of a recurring reminder.
+                Example: datetime(2025, 1, 1, 9, 0) starts on Jan 1, 2025 at 9:00 AM
 
-                5. IF one or more sessions have at least one available spot:
-                - Present only the available sessions to the user.
-                - Number the list so the user can respond with a selection.
-                - STOP and wait for explicit confirmation using ask_user.
+            end_datetime: Optional. When to stop executing this cron schedule.
+                If not provided, runs indefinitely until manually cancelled.
+                Use this to automatically stop a recurring reminder after a certain time.
+                Example: datetime.now() + timedelta(hours=1) stops after 1 hour
 
-                6. ONLY after explicit confirmation:
-                - Proceed with booking the selected session.
-                - Capture and report any popup or confirmation message.
+            timezone_str: Timezone for the schedule (default: "Europe/Brussels").
+                Examples: "America/New_York", "Asia/Tokyo", "UTC"
+                The cron times are interpreted in this timezone.
 
-                7. Verify the booking by navigating to:
-                "Mijn Reservaties" (/Reservation/Reservations)
-                - Confirm the booked session appears in the list.
+        Returns:
+            Confirmation message with schedule details
 
-                8. Send the final booking details using controller.send_final_update.
+        Usage examples:
+        - Remind every 30 seconds for the next 5 minutes:
+          schedule_repeat_reminder(
+              message="Check your email",
+              cron_expression="*/30 * * * * *",
+              end_datetime=datetime.now() + timedelta(minutes=5)
+          )
 
-                9. IF no sessions on the selected date have availability:
-                - Click the next button.cal_btn:not(.disabled) in DOM order.
-                - Repeat steps 2–4.
+        - Remind every weekday at 9 AM starting next Monday:
+          schedule_repeat_reminder(
+              message="Daily standup",
+              cron_expression="0 0 9 * * 1-5",
+              start_datetime=datetime(2025, 1, 6, 9, 0)  # Next Monday
+          )
+        """
+        from apscheduler.triggers.cron import CronTrigger
+        from zoneinfo import ZoneInfo
 
-                10. IF all available dates are exhausted:
-                    - Use controller.send_final_update to report that no spots are available.
+        chat_id = update.effective_chat.id
 
-                ────────────────────────────────
-                RULES
-                ────────────────────────────────
-                - Do NOT book anything without explicit confirmation via ask_user.
-                - Do NOT assume sessions exist outside #divItems.
-                - Do NOT infer dates from disabled buttons only.
-                - Follow DOM order when iterating dates.
-                - Stop immediately once a bookable session is found and presented to the user.
+        # Parse cron expression
+        parts = cron_expression.split()
+        if len(parts) != 6:
+            return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
 
-                TIP:
-                It is currently {current_date}. Use the day number text and the month text inside
-                each button.cal_btn to identify and select the correct date.
-            """
-            # Start browser automation in background so message handler stays free
-            context.application.create_task(
-                run_browser_automation(update.effective_chat.id, context, task_description)
-            )
-            return "Started browser automation in background"
+        second, minute, hour, day, month, day_of_week = parts
 
-        LAUNCH_SIGNAL = False
+        # Set timezone
+        tz = ZoneInfo(timezone_str)
+
+        # Create trigger with all parameters
+        trigger = CronTrigger(
+            second=second,
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=day_of_week,
+            start_date=start_datetime,
+            end_date=end_datetime,
+            timezone=tz
+        )
+
+        context.job_queue.run_custom(
+            callback=reminder_callback,
+            job_kwargs={
+                "trigger": trigger,
+                "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
+                "replace_existing": True
+            },
+            chat_id=chat_id,
+            data={"message": message}
+        )
+
+        # Build confirmation message
+        details = "✅ Recurring reminder scheduled:\n"
+        details += f"📝 Message: '{message}'\n"
+        details += f"⏱️ Schedule: {cron_expression}\n"
+        details += f"🌍 Timezone: {timezone_str}\n"
+        if start_datetime:
+            details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        else:
+            details += "▶️ Starts: Immediately\n"
+        if end_datetime:
+            details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        else:
+            details += "⏹️ Ends: Never (runs indefinitely)\n"
+        logger.info(details)
+        return details
+
+    @orchestrator_agent.tool
+    async def dispatch_browser(ctx: RunContext, task_description: str) -> str:
+        """Trigger browser automation for tasks like booking gym, browsing websites, etc.
+
+        Args:
+            task_description: Clear description of what the browser should do
+        """
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        task_description = f"""
+            Go to https://qore.clubplanner.be/ and log in using sensitive_data:
+            - x_user = username
+            - x_pass = password
+
+            After login, navigate to:
+            https://qore.clubplanner.be/Reservation/NewReservation/1
+
+            ────────────────────────────────
+            DOM FACTS (do not infer differently)
+            ────────────────────────────────
+            - The booking UI is contained in <div id="divnewreservation">.
+            - Date selection buttons are <button> elements with class "cal_btn".
+            - Disabled (unclickable) dates have class "disabled".
+            - Clickable dates match: button.cal_btn:not(.disabled).
+            - The day number is the numeric text directly inside the button.
+            - The month is the text inside the child element <h6 class="hidden-xs"> (e.g. "dec", "jan").
+            - The year is inferred from DOM order relative to <h4 class="has-warning"> headers
+            (e.g. "januari 2026"): buttons after belong to that year; buttons before belong to the previous year.
+            - Clicking a date triggers JavaScript getitems(...) and dynamically loads sessions.
+            - Available sessions are rendered only inside <div id="divItems">.
+            - The reservation/booking UI appears inside <div id="divreservationmember">.
+
+            ────────────────────────────────
+            PROCESS
+            ────────────────────────────────
+            1. Observe the page structure and confirm the presence of:
+            - #divnewreservation
+            - date buttons (button.cal_btn)
+            - #divItems (initially empty)
+
+            2. Determine the currently selected date from the UI.
+
+            3. Read all sessions displayed inside #divItems and extract:
+            - date
+            - time
+            - session name
+            - amount of available spots
+
+            4. List all sessions in the format:
+            "date / time / session name / available spots"
+
+            5. IF one or more sessions have at least one available spot:
+            - Present only the available sessions to the user.
+            - Number the list so the user can respond with a selection.
+            - STOP and wait for explicit confirmation using ask_user.
+
+            6. ONLY after explicit confirmation:
+            - Proceed with booking the selected session.
+            - Capture and report any popup or confirmation message.
+
+            7. Verify the booking by navigating to:
+            "Mijn Reservaties" (/Reservation/Reservations)
+            - Confirm the booked session appears in the list.
+
+            8. Send the final booking details using controller.send_final_update.
+
+            9. IF no sessions on the selected date have availability:
+            - Click the next button.cal_btn:not(.disabled) in DOM order.
+            - Repeat steps 2–4.
+
+            10. IF all available dates are exhausted:
+                - Use controller.send_final_update to report that no spots are available.
+
+            ────────────────────────────────
+            RULES
+            ────────────────────────────────
+            - Do NOT book anything without explicit confirmation via ask_user.
+            - Do NOT assume sessions exist outside #divItems.
+            - Do NOT infer dates from disabled buttons only.
+            - Follow DOM order when iterating dates.
+            - Stop immediately once a bookable session is found and presented to the user.
+
+            TIP:
+            It is currently {current_date}. Use the day number text and the month text inside
+            each button.cal_btn to identify and select the correct date.
+        """
+        # Start browser automation in background so message handler stays free
+        context.application.create_task(
+            run_browser_automation(update.effective_chat.id, context, task_description)
+        )
+        return "Started browser automation in background"
+
             
 
     user = update.effective_user
     message_text = update.message.text
-    print(f"Received from {user.first_name} ({user.id}): {message_text}")
+    logger.info(f"Received from {user.first_name} ({user.id}): {message_text}")
 
     # Check if browser is waiting for response
     if 'browser_state' in context.user_data:
         state = context.user_data['browser_state']
         if state.get('waiting_for_response'):
             # This is a response to browser agent's question
-            print(f"Forwarding response to browser: {message_text}")
+            logger.info(f"Forwarding response to browser: {message_text}")
             state['user_response'] = message_text
             state['response_event'].set()
             return
@@ -368,7 +590,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_history = update_system_prompt_in_history(chat_history)
 
     # Use orchestrator agent to decide what to do
-    print("🤔 Orchestrator agent analyzing message...")
+    logger.info("🤔 Orchestrator agent analyzing message...")
     result = await orchestrator_agent.run(message_text, message_history=chat_history)
 
     # Save updated chat history (includes both user message and agent response)
@@ -389,10 +611,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     """Start the bot."""
-    print("Starting minimal Telegram + browser_use example...")
 
-    # Create application
-    application = Application.builder().token(TOKEN).concurrent_updates(False).build()
+
+    logger.info("Starting personal assistant bot...")
+
+    # Get timezone from environment
+    TIMEZONE = ZoneInfo(os.getenv('TIMEZONE', 'Europe/Brussels'))
+
+    # Create application with JobQueue
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .concurrent_updates(False)
+        .build()
+    )
+
+    # Configure PTB-aware SQLite jobstore for persistence with timezone
+    jobstore = PTBSQLiteJobStore(
+        application=application,
+        url=f'sqlite:///{DB_PATH}'
+    )
+    job_queue = application.job_queue
+    job_queue.scheduler.add_jobstore(jobstore, alias="default")
+    logger.info(f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}")
 
     # Add message handler
     application.add_handler(
@@ -400,8 +641,9 @@ def main() -> None:
     )
 
     # Run the bot
-    print("Bot is running! Send 'browse' or 'book' to trigger browser automation.")
-    print("Press Ctrl-C to stop.")
+    logger.info("Bot is running! You can now book gym sessions or schedule reminders.")
+    logger.info("JobQueue with APScheduler + SQLite persistence is active.")
+    logger.info("Press Ctrl-C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
