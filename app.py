@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
 import datetime
+import logging
 import os
 import asyncio
 from textwrap import dedent
 from dotenv import load_dotenv
+from loguru import logger
 from telegram import Update
 from telegram.ext import (
     Application,
+    CommandHandler,
     MessageHandler,
     filters,
     ContextTypes,
@@ -24,6 +27,10 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
+
+from apscheduler.job import Job as APSJob
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from telegram.ext._jobqueue import Job
 
 from database import DB_PATH
 
@@ -256,13 +263,125 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
 _telegram_app: Application | None = None
 
 
-async def send_reminder(chat_id: int, message: str):
-    """Send a reminder message to user via Telegram."""
-    print(f"⏰ REMINDER TRIGGERED for chat_id={chat_id}: {message}")
-    print(f"_telegram_app is: {_telegram_app}")
-    formatted_message = f"🔔 Reminder: {message}"
+class PTBSQLiteJobStore(SQLAlchemyJobStore):
+    """SQLite jobstore that makes telegram.ext.Job class storable."""
+
+    def __init__(self, application: Application, url: str = "sqlite:///bot.db") -> None:
+        """Initialize with Application instance and SQLite database path.
+
+        Args:
+            application: Application instance for CallbackContext recreation
+            url: SQLite database URL (default: sqlite:///bot.db)
+        """
+        self.application = application
+        super().__init__(url=url)
+
+    @staticmethod
+    def _prepare_job(job: APSJob) -> APSJob:
+        """Prepare job for storage by extracting Telegram-specific data."""
+        prepped_job = APSJob.__new__(APSJob)
+        prepped_job.__setstate__(job.__getstate__())
+        tg_job = Job.from_aps_job(job)
+        prepped_job.args = (
+            tg_job.name,
+            tg_job.data,
+            tg_job.chat_id,
+            tg_job.user_id,
+            tg_job.callback,
+        )
+        return prepped_job
+
+    def _restore_job(self, job: APSJob) -> APSJob:
+        """Restore Telegram-specific job data after loading from database."""
+        name, data, chat_id, user_id, callback = job.args
+        tg_job = Job(
+            callback=callback,
+            chat_id=chat_id,
+            user_id=user_id,
+            name=name,
+            data=data,
+        )
+        job._modify(
+            args=(
+                self.application.job_queue,
+                tg_job,
+            )
+        )
+        return job
+
+    def add_job(self, job: APSJob) -> None:
+        """Persist newly added job to database."""
+        job = self._prepare_job(job)
+        super().add_job(job)
+
+    def update_job(self, job: APSJob) -> None:
+        """Update existing job in database."""
+        job = self._prepare_job(job)
+        super().update_job(job)
+
+    def _reconstitute_job(self, job_state: bytes) -> APSJob:
+        """Reconstruct job from pickled state retrieved from database."""
+        job: APSJob = super()._reconstitute_job(job_state)
+        return self._restore_job(job)
+
+
+async def alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the alarm message for /set timer."""
+    job = context.job
+    await context.bot.send_message(job.chat_id, text=f"Beep! {job.data} seconds are over!")
+
+
+def remove_job_if_exists(name: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Remove job with given name. Returns whether job was removed."""
+    current_jobs = context.job_queue.get_jobs_by_name(name)
+    if not current_jobs:
+        return False
+    for job in current_jobs:
+        job.schedule_removal()
+    return True
+
+
+async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a job to the queue using /set <seconds>."""
+    chat_id = update.effective_message.chat_id
     try:
-        await _telegram_app.bot.send_message(chat_id=chat_id, text=formatted_message)
+        # args[0] should contain the time for the timer in seconds
+        due = float(context.args[0])
+        if due < 0:
+            await update.effective_message.reply_text("Sorry we can not go back to future!")
+            return
+
+        job_removed = remove_job_if_exists(str(chat_id), context)
+        context.job_queue.run_once(alarm, due, chat_id=chat_id, name=str(chat_id), data=due)
+
+        text = "Timer successfully set!"
+        if job_removed:
+            text += " Old one was removed."
+        await update.effective_message.reply_text(text)
+
+    except (IndexError, ValueError):
+        await update.effective_message.reply_text("Usage: /set <seconds>")
+
+
+async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    JobQueue callback for sending reminders.
+
+    This function is called by the Telegram JobQueue when a reminder is due.
+    It accesses the message and chat_id from the job's context.
+
+    Args:
+        context: Telegram context containing job data and bot instance
+    """
+    job = context.job
+    message = job.data["message"]
+    chat_id = job.chat_id
+
+    print(f"⏰ REMINDER TRIGGERED for chat_id={chat_id}: {message}")
+    formatted_message = f"🔔 Reminder: {message}"
+
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=formatted_message)
         print(f"✅ Reminder sent successfully")
     except Exception as e:
         print(f"❌ Error sending reminder: {e}")
@@ -278,30 +397,127 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     @orchestrator_agent.tool
-    def schedule_reminder(ctx: RunContext, message: str, reminder_datetime: datetime.datetime) -> str:
+    def schedule_reminder(
+        ctx: RunContext,
+        message: str,
+        cron_expression: str,
+        start_datetime: datetime.datetime | None = None,
+        end_datetime: datetime.datetime | None = None,
+        timezone_str: str = "Europe/Brussels"
+    ) -> str:
         """
-        Schedule a reminder to be sent at a specific date and time.
+        Schedule a recurring reminder using a cron expression with optional start/end times.
 
         Args:
-            message: The reminder message to send
-            reminder_datetime: When to send the reminder (datetime object)
+            message: The reminder message to send to the user
+
+            cron_expression: 6-field cron string that defines when the reminder repeats.
+                Format: "second minute hour day month day_of_week"
+
+                Examples:
+                - "*/10 * * * * *" = Every 10 seconds (fires at 0, 10, 20, 30, 40, 50 seconds)
+                - "0 */5 * * * *" = Every 5 minutes (fires at minute 0, 5, 10, 15, etc.)
+                - "0 0 9 * * *" = Every day at 9:00 AM
+                - "0 30 14 * * 1-5" = Every weekday (Mon-Fri) at 2:30 PM
+                - "0 0 * * * *" = Every hour on the hour
+
+                Field descriptions:
+                - second: 0-59 or */N for every N seconds
+                - minute: 0-59 or */N for every N minutes
+                - hour: 0-23 or */N for every N hours
+                - day: 1-31 (day of month)
+                - month: 1-12 or jan,feb,mar,...
+                - day_of_week: 0-6 (0=Monday) or mon,tue,wed,thu,fri,sat,sun
+
+                Use "*" to match any value for that field.
+                Use "*/N" to match every Nth value (e.g., */10 for every 10 seconds).
+
+            start_datetime: Optional. When to start executing this cron schedule.
+                If not provided, starts immediately.
+                Use this to delay the start of a recurring reminder.
+                Example: datetime(2025, 1, 1, 9, 0) starts on Jan 1, 2025 at 9:00 AM
+
+            end_datetime: Optional. When to stop executing this cron schedule.
+                If not provided, runs indefinitely until manually cancelled.
+                Use this to automatically stop a recurring reminder after a certain time.
+                Example: datetime.now() + timedelta(hours=1) stops after 1 hour
+
+            timezone_str: Timezone for the schedule (default: "Europe/Brussels").
+                Examples: "America/New_York", "Asia/Tokyo", "UTC"
+                The cron times are interpreted in this timezone.
 
         Returns:
-            Confirmation message
-        """
-        from scheduler import add_date_job
+            Confirmation message with schedule details
 
-        # Get chat_id from context
+        Usage examples:
+        - Remind every 30 seconds for the next 5 minutes:
+          schedule_repeat_reminder(
+              message="Check your email",
+              cron_expression="*/30 * * * * *",
+              end_datetime=datetime.now() + timedelta(minutes=5)
+          )
+
+        - Remind every weekday at 9 AM starting next Monday:
+          schedule_repeat_reminder(
+              message="Daily standup",
+              cron_expression="0 0 9 * * 1-5",
+              start_datetime=datetime(2025, 1, 6, 9, 0)  # Next Monday
+          )
+        """
+        from apscheduler.triggers.cron import CronTrigger
+        from zoneinfo import ZoneInfo
+
         chat_id = update.effective_chat.id
 
-        # Schedule the job (only store serializable data)
-        add_date_job(
-            func=send_reminder,
-            run_date=reminder_datetime,
-            kwargs={"chat_id": chat_id, "message": message}
+        # Parse cron expression
+        parts = cron_expression.split()
+        if len(parts) != 6:
+            return f"❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
+
+        second, minute, hour, day, month, day_of_week = parts
+
+        # Set timezone
+        tz = ZoneInfo(timezone_str)
+
+        # Create trigger with all parameters
+        trigger = CronTrigger(
+            second=second,
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=day_of_week,
+            start_date=start_datetime,
+            end_date=end_datetime,
+            timezone=tz
         )
 
-        return f"✅ Reminder scheduled: '{message}' at {reminder_datetime.strftime('%Y-%m-%d %H:%M')}"
+        context.job_queue.run_custom(
+            callback=reminder_callback,
+            job_kwargs={
+                "trigger": trigger,
+                "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
+                "replace_existing": True
+            },
+            chat_id=chat_id,
+            data={"message": message}
+        )
+
+        # Build confirmation message
+        details = f"✅ Recurring reminder scheduled:\n"
+        details += f"📝 Message: '{message}'\n"
+        details += f"⏱️ Schedule: {cron_expression}\n"
+        details += f"🌍 Timezone: {timezone_str}\n"
+        if start_datetime:
+            details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        else:
+            details += f"▶️ Starts: Immediately\n"
+        if end_datetime:
+            details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        else:
+            details += f"⏹️ Ends: Never (runs indefinitely)\n"
+        logger.info(details)
+        return details
 
     @orchestrator_agent.tool
     async def dispatch_browser(ctx: RunContext, task_description: str) -> str:
@@ -439,31 +655,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 def main() -> None:
     """Start the bot."""
     global _telegram_app
+    from zoneinfo import ZoneInfo
+    from database import DB_PATH
 
     print("Starting personal assistant bot...")
 
-    # Create application
-    application = Application.builder().token(TOKEN).concurrent_updates(False).build()
+    # Get timezone from environment
+    TIMEZONE = ZoneInfo(os.getenv('TIMEZONE', 'Europe/Brussels'))
+
+    # Create application with JobQueue
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .concurrent_updates(False)
+        .build()
+    )
+
+    # Configure PTB-aware SQLite jobstore for persistence with timezone
+    jobstore = PTBSQLiteJobStore(
+        application=application,
+        url=f'sqlite:///{DB_PATH}'
+    )
+    job_queue = application.job_queue
+    job_queue.scheduler.add_jobstore(jobstore, alias="default")
+    print(f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}")
 
     # Set global reference for reminder callbacks
     _telegram_app = application
+
+    # Add command handlers
+    application.add_handler(CommandHandler("set", set_timer))
 
     # Add message handler
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    async def post_init(app: Application) -> None:
-        """Initialize scheduler after event loop starts."""
-        from scheduler import start_scheduler
-        start_scheduler()
-        print("✅ Scheduler started")
-
-    # Set up post_init to start scheduler when event loop is ready
-    application.post_init = post_init
-
     # Run the bot
     print("Bot is running! You can now book gym sessions or schedule reminders.")
+    print("JobQueue with APScheduler + SQLite persistence is active.")
     print("Press Ctrl-C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
