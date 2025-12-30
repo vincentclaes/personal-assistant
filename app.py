@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import datetime
-import logging
 import os
 import asyncio
 from textwrap import dedent
@@ -33,6 +32,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from telegram.ext._jobqueue import Job
 
 from database import DB_PATH
+from zoneinfo import ZoneInfo
 
 # Load environment variables
 load_dotenv()
@@ -259,10 +259,6 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
             text=f"❌ Error during automation: {e}"
         )
 
-# Global reference to application (set in main())
-_telegram_app: Application | None = None
-
-
 class PTBSQLiteJobStore(SQLAlchemyJobStore):
     """SQLite jobstore that makes telegram.ext.Job class storable."""
 
@@ -324,45 +320,6 @@ class PTBSQLiteJobStore(SQLAlchemyJobStore):
         job: APSJob = super()._reconstitute_job(job_state)
         return self._restore_job(job)
 
-
-async def alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send the alarm message for /set timer."""
-    job = context.job
-    await context.bot.send_message(job.chat_id, text=f"Beep! {job.data} seconds are over!")
-
-
-def remove_job_if_exists(name: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Remove job with given name. Returns whether job was removed."""
-    current_jobs = context.job_queue.get_jobs_by_name(name)
-    if not current_jobs:
-        return False
-    for job in current_jobs:
-        job.schedule_removal()
-    return True
-
-
-async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add a job to the queue using /set <seconds>."""
-    chat_id = update.effective_message.chat_id
-    try:
-        # args[0] should contain the time for the timer in seconds
-        due = float(context.args[0])
-        if due < 0:
-            await update.effective_message.reply_text("Sorry we can not go back to future!")
-            return
-
-        job_removed = remove_job_if_exists(str(chat_id), context)
-        context.job_queue.run_once(alarm, due, chat_id=chat_id, name=str(chat_id), data=due)
-
-        text = "Timer successfully set!"
-        if job_removed:
-            text += " Old one was removed."
-        await update.effective_message.reply_text(text)
-
-    except (IndexError, ValueError):
-        await update.effective_message.reply_text("Usage: /set <seconds>")
-
-
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     JobQueue callback for sending reminders.
@@ -377,14 +334,14 @@ async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     message = job.data["message"]
     chat_id = job.chat_id
 
-    print(f"⏰ REMINDER TRIGGERED for chat_id={chat_id}: {message}")
+    logger.info(f"⏰ REMINDER TRIGGERED for chat_id={chat_id}: {message}")
     formatted_message = f"🔔 Reminder: {message}"
 
     try:
         await context.bot.send_message(chat_id=chat_id, text=formatted_message)
-        print(f"✅ Reminder sent successfully")
+        logger.info("✅ Reminder sent successfully")
     except Exception as e:
-        print(f"❌ Error sending reminder: {e}")
+        logger.info(f"❌ Error sending reminder: {e}")
 
 
 
@@ -472,7 +429,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Parse cron expression
         parts = cron_expression.split()
         if len(parts) != 6:
-            return f"❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
+            return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
 
         second, minute, hour, day, month, day_of_week = parts
 
@@ -504,18 +461,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
         # Build confirmation message
-        details = f"✅ Recurring reminder scheduled:\n"
+        details = "✅ Recurring reminder scheduled:\n"
         details += f"📝 Message: '{message}'\n"
         details += f"⏱️ Schedule: {cron_expression}\n"
         details += f"🌍 Timezone: {timezone_str}\n"
         if start_datetime:
             details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
         else:
-            details += f"▶️ Starts: Immediately\n"
+            details += "▶️ Starts: Immediately\n"
         if end_datetime:
             details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
         else:
-            details += f"⏹️ Ends: Never (runs indefinitely)\n"
+            details += "⏹️ Ends: Never (runs indefinitely)\n"
         logger.info(details)
         return details
 
@@ -614,14 +571,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user = update.effective_user
     message_text = update.message.text
-    print(f"Received from {user.first_name} ({user.id}): {message_text}")
+    logger.info(f"Received from {user.first_name} ({user.id}): {message_text}")
 
     # Check if browser is waiting for response
     if 'browser_state' in context.user_data:
         state = context.user_data['browser_state']
         if state.get('waiting_for_response'):
             # This is a response to browser agent's question
-            print(f"Forwarding response to browser: {message_text}")
+            logger.info(f"Forwarding response to browser: {message_text}")
             state['user_response'] = message_text
             state['response_event'].set()
             return
@@ -633,7 +590,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_history = update_system_prompt_in_history(chat_history)
 
     # Use orchestrator agent to decide what to do
-    print("🤔 Orchestrator agent analyzing message...")
+    logger.info("🤔 Orchestrator agent analyzing message...")
     result = await orchestrator_agent.run(message_text, message_history=chat_history)
 
     # Save updated chat history (includes both user message and agent response)
@@ -654,11 +611,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     """Start the bot."""
-    global _telegram_app
-    from zoneinfo import ZoneInfo
-    from database import DB_PATH
 
-    print("Starting personal assistant bot...")
+
+    logger.info("Starting personal assistant bot...")
 
     # Get timezone from environment
     TIMEZONE = ZoneInfo(os.getenv('TIMEZONE', 'Europe/Brussels'))
@@ -678,13 +633,7 @@ def main() -> None:
     )
     job_queue = application.job_queue
     job_queue.scheduler.add_jobstore(jobstore, alias="default")
-    print(f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}")
-
-    # Set global reference for reminder callbacks
-    _telegram_app = application
-
-    # Add command handlers
-    application.add_handler(CommandHandler("set", set_timer))
+    logger.info(f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}")
 
     # Add message handler
     application.add_handler(
@@ -692,9 +641,9 @@ def main() -> None:
     )
 
     # Run the bot
-    print("Bot is running! You can now book gym sessions or schedule reminders.")
-    print("JobQueue with APScheduler + SQLite persistence is active.")
-    print("Press Ctrl-C to stop.")
+    logger.info("Bot is running! You can now book gym sessions or schedule reminders.")
+    logger.info("JobQueue with APScheduler + SQLite persistence is active.")
+    logger.info("Press Ctrl-C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
