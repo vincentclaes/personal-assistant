@@ -14,3 +14,5 @@ wheels/
 # User data
 *.db
 *.json
+terraform.tfvars
+.terraform/

@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_API_KEY')
+BROWSER_HEADLESS = os.getenv('BROWSER_HEADLESS', 'true').lower() == 'true'
 
 if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
@@ -232,7 +233,7 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
     await context.bot.send_message(chat_id=chat_id, text="🌐 Starting browser automation...")
 
     # Create browser and controller
-    browser = Browser(headless=False)
+    browser = Browser(headless=BROWSER_HEADLESS)
     controller = create_telegram_aware_controller(chat_id, context)
     llm = ChatOpenAI(model="gpt-4o")
 
