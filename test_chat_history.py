@@ -88,8 +88,8 @@ def test_system_prompt_update():
         ModelResponse(parts=[TextPart(content="Hi there!")])
     ]
 
-    # Mock SYSTEM_PROMPT constant
-    with patch('app.SYSTEM_PROMPT', 'New system prompt'):
+    # Mock get_agent_system_prompt function
+    with patch('app.get_agent_system_prompt', return_value='New system prompt'):
         updated = update_system_prompt_in_history(messages_with_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"
@@ -102,7 +102,7 @@ def test_system_prompt_update():
         ModelResponse(parts=[TextPart(content="Hi there!")])
     ]
 
-    with patch('app.SYSTEM_PROMPT', 'New system prompt'):
+    with patch('app.get_agent_system_prompt', return_value='New system prompt'):
         updated = update_system_prompt_in_history(messages_without_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"

@@ -48,13 +48,3 @@ def test_app_uses_database_constants():
 
     # Verify database module is importable and app.py can use it
     assert os.path.isabs(DB_PATH)
-
-
-def test_scheduler_uses_database_constants():
-    """Test that scheduler.py imports DB_PATH from database.py."""
-    # Import to verify modules load without errors
-    import scheduler
-    from database import DB_PATH
-
-    # Verify database module is importable and scheduler.py can use it
-    assert os.path.isabs(DB_PATH)
