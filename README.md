@@ -8,6 +8,9 @@
 # Build Docker image for linux/amd64 platform (required for ECS Fargate)
 docker build --platform linux/amd64 --provenance=false -t personal-assistant:local .
 
+# Test the image locally (interactive mode)
+docker run -it --env-file .env -e TZ=Europe/Brussels -e TIMEZONE=Europe/Brussels personal-assistant:local
+
 # Tag the image for ECR
 docker tag personal-assistant:local 077590795309.dkr.ecr.eu-west-1.amazonaws.com/personal-assistant/app:latest
 

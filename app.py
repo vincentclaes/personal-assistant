@@ -56,17 +56,22 @@ def get_user_chat_history(user_id: int):
     Returns:
         List of pydantic_ai messages or empty list if user is new
     """
+    logger.debug(f"Retrieving chat history for user_id={user_id}")
     if user_id not in user_db:
+        logger.info(f"No chat history found for user_id={user_id} (new user)")
         return []
 
     user_entry = user_db[user_id]
     chat_history_json = user_entry.get("chat_history", [])
 
     if not chat_history_json:
+        logger.debug(f"Chat history empty for user_id={user_id}")
         return []
 
     # Convert from JSON to pydantic_ai messages
-    return ModelMessagesTypeAdapter.validate_python(chat_history_json)
+    messages = ModelMessagesTypeAdapter.validate_python(chat_history_json)
+    logger.debug(f"Loaded {len(messages)} messages from history for user_id={user_id}")
+    return messages
 
 
 def save_user_chat_history(user_id: int, user_data: dict, messages):

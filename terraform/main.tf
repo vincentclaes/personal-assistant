@@ -118,6 +118,10 @@ module "ecs_service" {
           value = "true"
         },
         {
+          name  = "TZ"
+          value = "Europe/Brussels"
+        },
+        {
           name  = "TIMEZONE"
           value = "Europe/Brussels"
         },
