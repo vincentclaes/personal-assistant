@@ -22,7 +22,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-cache
 
 # Copy application code
-COPY app.py database.py ./
+COPY personal_assistant/ ./personal_assistant/
 
 # Set PATH to use virtual environment directly
 ENV PATH="/app/.venv/bin:$PATH"
@@ -35,4 +35,4 @@ ENV DB_PATH="/tmp/app.db"
 VOLUME ["/tmp"]
 
 # Run the application directly (no uv run needed)
-CMD ["python", "app.py"]
+CMD ["python", "-m", "personal_assistant.app"]

@@ -4,15 +4,23 @@ This guide helps AI assistants (like Claude) work effectively on this personal a
 
 ## Project Overview
 
-A Python-based personal assistant with:
-- **Gym booking automation** (`book_gym.py`) - Browser automation using browser-use to book gym sessions with user confirmation
-- **Telegram bot** (`interact_with_telegram.py`) - Simple bot that responds to messages
+A Python-based personal assistant with Telegram bot integration and automated scheduling capabilities.
+
+**Project Structure:**
+- `personal_assistant/` - Main source code package
+  - `app.py` - Telegram bot application with PydanticAI agent
+  - `database.py` - Database configuration and constants
+  - `manage_db.py` - CLI tool for database management
+- `tests/` - Test suite with pytest
+  - Import modules using: `from personal_assistant.app import ...`
 
 **Tech stack:**
 - Python 3.12+
 - `uv` for dependency management
-- `browser-use` for web automation
+- `pydantic-ai` for AI agent capabilities
 - `python-telegram-bot` for Telegram integration
+- `sqlitedict` for user data persistence
+- `APScheduler` for scheduled tasks
 - Environment variables for credentials (`.env` file)
 
 ## Development Guidelines
@@ -20,8 +28,15 @@ A Python-based personal assistant with:
 ### Dependency Management
 - **Always use `uv` exclusively** - Never use `pip` or `venv` directly
 - Add dependencies: `uv add <package>`
-- Run scripts: `uv run python <script>.py`
+- Run the app: `uv run python -m personal_assistant.app`
+- Run tests: `uv run python -m pytest`
 - Sync dependencies: `uv sync`
+
+### Module Imports
+- Source code is in the `personal_assistant/` package
+- Tests are in the `tests/` directory
+- Import modules using: `from personal_assistant.app import function_name`
+- When running modules: `python -m personal_assistant.app`
 
 ### Code Style
 - Follow **PEP 8** conventions
@@ -75,37 +90,31 @@ A Python-based personal assistant with:
 
 **Example workflow:**
 ```bash
-# 1. Write test in test_feature.py
+# 1. Write test in tests/test_feature.py
 # 2. Run test to see it fail
-uv run python -m pytest test_feature.py
+uv run python -m pytest tests/test_feature.py
 
-# 3. Implement feature
+# 3. Implement feature in personal_assistant/
 # 4. Run test again to see it pass
-uv run python -m pytest test_feature.py
+uv run python -m pytest tests/test_feature.py
 ```
 
-### Browser Automation (browser-use)
+### PydanticAI Agent
 
-**Key documentation:** [browser-use AGENTS.md](https://github.com/browser-use/browser-use/blob/main/AGENTS.md)
-
-**Important patterns:**
-- Use `headless=False` for debugging - always see what the browser is doing
-- Create custom `Controller` with `@controller.registry.action()` for user interaction
-- The `ask_user` tool pattern is critical - use it before any booking/purchase actions
-- Pass `sensitive_data` dict to Agent for credentials (never hardcode)
-- Enable `use_vision=True` for better page understanding
-
-**Example user confirmation pattern:**
-```python
-@controller.registry.action('Ask the user a question and wait for response')
-def ask_user(question: str) -> ActionResult:
-    user_response = input("Your response: ").strip()
-    return ActionResult(extracted_content=user_response)
-```
+**Current implementation:**
+- Main agent is in `personal_assistant/app.py`
+- Uses OpenAI via `pydantic-ai`
+- Chat history persisted per user with `sqlitedict`
+- System prompts updated dynamically
 
 ### Telegram Bot (python-telegram-bot)
 
 **Key documentation:** [Your First Bot Tutorial](https://github.com/python-telegram-bot/python-telegram-bot/wiki/Extensions---Your-first-Bot)
+
+**Current implementation:**
+- Bot handles text messages and commands
+- Integrates with PydanticAI agent for responses
+- Scheduled jobs using APScheduler
 
 **Important patterns:**
 - Use `Application.builder().token(TOKEN).build()` for setup
@@ -140,18 +149,33 @@ TOKEN = os.getenv('TELEGRAM_API_KEY')
 
 ### Project Structure
 
-**Monolithic approach:** Keep related functionality together
-- Each major feature can be its own script
-- Don't split into many small utility modules
-- Duplicate simple code rather than creating premature abstractions
+**Package-based organization:**
+- Source code in `personal_assistant/` package
+- Tests in `tests/` directory
+- Keep related functionality together in modules
+- Avoid premature abstractions
 - Only refactor when complexity becomes a real problem
+
+### Docker Deployment
+
+**Dockerfile:**
+- Copies `personal_assistant/` directory into container
+- Runs with: `CMD ["python", "-m", "personal_assistant.app"]`
+- Uses writable `/tmp` directory for database and cache
+
+**Environment variables** (set in Terraform):
+- `TELEGRAM_API_KEY`, `OPENAI_API_KEY`, `QORE_PASSWORD`
+- `DB_PATH=/tmp/app.db` for writable storage in ECS Fargate
+- `HOME`, `XDG_*` dirs all set to `/tmp`
 
 ---
 
 ## Quick Reference
 
-- **Run script:** `uv run python script.py`
-- **Add dependency:** `uv add package-name`
+- **Run app:** `uv run python -m personal_assistant.app`
 - **Run tests:** `uv run python -m pytest`
+- **Run specific test:** `uv run python -m pytest tests/test_database.py`
+- **Add dependency:** `uv add package-name`
+- **Manage DB:** `uv run python -m personal_assistant.manage_db --help`
 - **TDD cycle:** Write test → Watch fail → Implement → Watch pass
 - **One test rule:** One happy path test per feature, no more

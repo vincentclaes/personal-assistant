@@ -1,5 +1,25 @@
 # Personal Assistant
 
+A Python-based personal assistant with Telegram bot integration and automated scheduling capabilities.
+
+## Project Structure
+
+```text
+personal-assistant/
+├── personal_assistant/     # Source code
+│   ├── app.py             # Main Telegram bot application
+│   ├── database.py        # Database configuration
+│   └── manage_db.py       # Database management CLI
+├── tests/                 # Test suite
+│   ├── test_app.py
+│   ├── test_database.py
+│   ├── test_chat_history.py
+│   └── test_manage_db.py
+├── terraform/             # Infrastructure as code
+├── Dockerfile             # Container definition
+└── pyproject.toml         # Dependencies
+```
+
 ## Deployment Commands
 
 ### Build and Push Docker Image
@@ -74,6 +94,34 @@ sleep 90 && AWS_PROFILE=vincent aws logs tail /aws/ecs/personal-assistant-defaul
   --region eu-west-1 \
   --since 3m \
   --format short
+```
+
+## Development
+
+### Running Locally
+
+```bash
+# Run the application
+uv run python -m personal_assistant.app
+
+# Run tests
+uv run python -m pytest
+
+# Run specific test file
+uv run python -m pytest tests/test_database.py
+```
+
+### Database Management
+
+```bash
+# Export database to JSON
+uv run python -m personal_assistant.manage_db export --output backup.json
+
+# Clear user chat history
+uv run python -m personal_assistant.manage_db clear --user-id 12345
+
+# Delete entire user entry
+uv run python -m personal_assistant.manage_db clear --user-id 12345 --full
 ```
 
 ## Environment Variables

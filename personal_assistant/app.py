@@ -31,7 +31,7 @@ from apscheduler.job import Job as APSJob
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from telegram.ext._jobqueue import Job
 
-from database import DB_PATH
+from .database import DB_PATH
 from zoneinfo import ZoneInfo
 
 # Load environment variables

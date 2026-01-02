@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from sqlitedict import SqliteDict
 from typer.testing import CliRunner
-from manage_db import app
+from personal_assistant.manage_db import app
 
 
 def test_export_command():

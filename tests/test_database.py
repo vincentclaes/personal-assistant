@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 def test_database_constants_exist():
     """Test that database.py defines DB_PATH constant as absolute path."""
-    from database import DB_PATH
+    from personal_assistant.database import DB_PATH
 
     # DB_PATH should be a defined string
     assert isinstance(DB_PATH, str), "DB_PATH should be a string"
@@ -29,22 +29,22 @@ def test_database_path_respects_env_var():
     with patch.dict(os.environ, {'DB_PATH': custom_path}):
         # Need to reload the module to pick up the env var
         import importlib
-        import database
+        from personal_assistant import database
         importlib.reload(database)
 
         assert database.DB_PATH == custom_path, f"Expected DB_PATH to be '{custom_path}', got '{database.DB_PATH}'"
 
     # Reload again without env var to restore default
     import importlib
-    import database
+    from personal_assistant import database
     importlib.reload(database)
 
 
 def test_app_uses_database_constants():
     """Test that app.py imports DB_PATH from database.py."""
     # Import to verify modules load without errors
-    import app
-    from database import DB_PATH
+    from personal_assistant import app
+    from personal_assistant.database import DB_PATH
 
     # Verify database module is importable and app.py can use it
     assert os.path.isabs(DB_PATH)

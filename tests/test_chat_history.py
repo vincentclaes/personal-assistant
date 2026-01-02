@@ -23,9 +23,9 @@ def test_user_chat_history_persistence():
         db_path = Path(tmpdir) / "test_users.db"
 
         # Patch the app module's user_db to use our test database
-        with patch('app.user_db', SqliteDict(str(db_path), autocommit=True)):
+        with patch('personal_assistant.app.user_db', SqliteDict(str(db_path), autocommit=True)):
             # Import functions after patching
-            from app import get_user_chat_history, save_user_chat_history
+            from personal_assistant.app import get_user_chat_history, save_user_chat_history
 
             # Simulate a Telegram user
             user_id = 12345
@@ -77,7 +77,7 @@ def test_user_chat_history_persistence():
 
 def test_system_prompt_update():
     """Test that system prompt is correctly updated or added in chat history."""
-    from app import update_system_prompt_in_history
+    from personal_assistant.app import update_system_prompt_in_history
 
     # Test 1: Replace existing system prompt
     messages_with_prompt = [
@@ -89,7 +89,7 @@ def test_system_prompt_update():
     ]
 
     # Mock get_agent_system_prompt function
-    with patch('app.get_agent_system_prompt', return_value='New system prompt'):
+    with patch('personal_assistant.app.get_agent_system_prompt', return_value='New system prompt'):
         updated = update_system_prompt_in_history(messages_with_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"
@@ -102,7 +102,7 @@ def test_system_prompt_update():
         ModelResponse(parts=[TextPart(content="Hi there!")])
     ]
 
-    with patch('app.get_agent_system_prompt', return_value='New system prompt'):
+    with patch('personal_assistant.app.get_agent_system_prompt', return_value='New system prompt'):
         updated = update_system_prompt_in_history(messages_without_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"
