@@ -15,12 +15,34 @@ personal-assistant/
 │   ├── test_database.py
 │   ├── test_chat_history.py
 │   └── test_manage_db.py
+├── ci/                    # CI/CD scripts
+│   └── deploy-image.sh    # Automated deployment script
 ├── terraform/             # Infrastructure as code
 ├── Dockerfile             # Container definition
 └── pyproject.toml         # Dependencies
 ```
 
 ## Deployment Commands
+
+### Automated Deployment
+
+Use the automated deployment script to build, push, and deploy in one command:
+
+```bash
+./ci/deploy-image.sh
+```
+
+This script will:
+
+1. Build the Docker image for linux/amd64
+2. Tag the image for ECR
+3. Login to ECR
+4. Push the image to ECR
+5. Force a new ECS deployment
+
+After the script completes, wait ~90 seconds and view the logs with the command shown in the output.
+
+### Manual Deployment Steps
 
 ### Build and Push Docker Image
 
