@@ -2123,7 +2123,7 @@ wheels = [
 [[package]]
 name = "personal-assistant"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "browser-use" },
@@ -2135,6 +2135,7 @@ dependencies = [
     { name = "python-telegram-bot", extra = ["job-queue"] },
     { name = "sqlalchemy" },
     { name = "sqlitedict" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -2155,6 +2156,7 @@ requires-dist = [
     { name = "python-telegram-bot", extras = ["job-queue"], specifier = ">=22.5" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "sqlitedict", specifier = ">=2.1.0" },
+    { name = "typer", specifier = ">=0.15.1" },
 ]
 
 [package.metadata.requires-dev]

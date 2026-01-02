@@ -8,8 +8,8 @@ A Python-based personal assistant with Telegram bot integration and automated sc
 personal-assistant/
 ├── personal_assistant/     # Source code
 │   ├── app.py             # Main Telegram bot application
-│   ├── database.py        # Database configuration
-│   └── manage_db.py       # Database management CLI
+│   ├── cli.py             # CLI entrypoint (pa command)
+│   └── database.py        # Database configuration
 ├── tests/                 # Test suite
 │   ├── test_app.py
 │   ├── test_database.py
@@ -115,13 +115,13 @@ uv run python -m pytest tests/test_database.py
 
 ```bash
 # Export database to JSON
-uv run python -m personal_assistant.manage_db export --output backup.json
+uv run pa db export --output backup.json
 
 # Clear user chat history
-uv run python -m personal_assistant.manage_db clear --user-id 12345
+uv run pa db clear --user-id 12345
 
 # Delete entire user entry
-uv run python -m personal_assistant.manage_db clear --user-id 12345 --full
+uv run pa db clear --user-id 12345 --full
 ```
 
 ## Environment Variables

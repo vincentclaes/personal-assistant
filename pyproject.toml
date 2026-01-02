@@ -15,7 +15,23 @@ dependencies = [
     "python-telegram-bot[job-queue]>=22.5",
     "sqlalchemy>=2.0.0",
     "sqlitedict>=2.1.0",
+    "typer>=0.15.1",
 ]
+
+[project.scripts]
+pa = "personal_assistant.cli:app"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["personal_assistant*"]
+exclude = ["terraform*", "tests*"]
 
 [dependency-groups]
 dev = [
