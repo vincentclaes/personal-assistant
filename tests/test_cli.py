@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 from sqlitedict import SqliteDict
 from typer.testing import CliRunner
-from personal_assistant.manage_db import app
+from personal_assistant.cli import app
 
 
-def test_export_command():
+def test_db_export_command():
     """Test exporting database to JSON file."""
     runner = CliRunner()
 
@@ -29,7 +29,7 @@ def test_export_command():
             }
 
         # Run export command with custom paths
-        result = runner.invoke(app, ["export", "--output", str(output_path), "--db-path", str(db_path)])
+        result = runner.invoke(app, ["db", "export", "--output", str(output_path), "--db-path", str(db_path)])
 
         # Verify command succeeded
         assert result.exit_code == 0, f"Command failed: {result.stdout}"
@@ -60,7 +60,7 @@ def test_clear_chat_history_only():
             }
 
         # Run clear command without --full flag
-        result = runner.invoke(app, ["clear", "--user-id", "12345", "--db-path", str(db_path)])
+        result = runner.invoke(app, ["db", "clear", "--user-id", "12345", "--db-path", str(db_path)])
 
         # Verify command succeeded
         assert result.exit_code == 0
@@ -73,7 +73,7 @@ def test_clear_chat_history_only():
             assert user_data["chat_history"] == []
 
 
-def test_clear_full_user_entry():
+def test_db_clear_full_user_entry():
     """Test deleting entire user entry with --full flag."""
     runner = CliRunner()
 
@@ -88,7 +88,7 @@ def test_clear_full_user_entry():
             }
 
         # Run clear command with --full flag
-        result = runner.invoke(app, ["clear", "--user-id", "12345", "--full", "--db-path", str(db_path)])
+        result = runner.invoke(app, ["db", "clear", "--user-id", "12345", "--full", "--db-path", str(db_path)])
 
         # Verify command succeeded
         assert result.exit_code == 0
@@ -99,7 +99,7 @@ def test_clear_full_user_entry():
             assert 12345 not in db
 
 
-def test_clear_nonexistent_user():
+def test_db_clear_nonexistent_user():
     """Test clearing data for user that doesn't exist."""
     runner = CliRunner()
 
@@ -111,7 +111,7 @@ def test_clear_nonexistent_user():
             pass
 
         # Run clear command for non-existent user
-        result = runner.invoke(app, ["clear", "--user-id", "99999", "--db-path", str(db_path)])
+        result = runner.invoke(app, ["db", "clear", "--user-id", "99999", "--db-path", str(db_path)])
 
         # Verify command reports user not found
         assert result.exit_code != 0
