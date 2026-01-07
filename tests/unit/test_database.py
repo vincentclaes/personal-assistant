@@ -17,7 +17,9 @@ def test_database_constants_exist():
     assert os.path.isabs(DB_PATH), f"DB_PATH should be absolute, got '{DB_PATH}'"
 
     # DB_PATH should end with app.db
-    assert DB_PATH.endswith("app.db"), f"Expected DB_PATH to end with 'app.db', got '{DB_PATH}'"
+    assert DB_PATH.endswith(
+        "app.db"
+    ), f"Expected DB_PATH to end with 'app.db', got '{DB_PATH}'"
 
 
 def test_database_path_respects_env_var():
@@ -25,17 +27,21 @@ def test_database_path_respects_env_var():
     custom_path = "/custom/location/mydb.db"
 
     # Reload database module with env var set
-    with patch.dict(os.environ, {'DB_PATH': custom_path}):
+    with patch.dict(os.environ, {"DB_PATH": custom_path}):
         # Need to reload the module to pick up the env var
         import importlib
         from personal_assistant import database
+
         importlib.reload(database)
 
-        assert database.DB_PATH == custom_path, f"Expected DB_PATH to be '{custom_path}', got '{database.DB_PATH}'"
+        assert (
+            database.DB_PATH == custom_path
+        ), f"Expected DB_PATH to be '{custom_path}', got '{database.DB_PATH}'"
 
     # Reload again without env var to restore default
     import importlib
     from personal_assistant import database
+
     importlib.reload(database)
 
 

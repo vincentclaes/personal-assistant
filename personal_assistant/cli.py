@@ -16,7 +16,7 @@ MY_USER_ID = 8249434738
 @db_app.command()
 def export(
     output: str = typer.Option("app.db.json", help="Output JSON file path"),
-    db_path: str = typer.Option(DB_PATH, help="Database file path")
+    db_path: str = typer.Option(DB_PATH, help="Database file path"),
 ) -> None:
     """Export all database data to JSON file."""
     data = {}
@@ -24,7 +24,7 @@ def export(
         for key in db.keys():
             data[str(key)] = db[key]
 
-    with open(output, 'w', encoding='utf-8') as f:
+    with open(output, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
     typer.echo(f"✅ Exported {len(data)} entries from {db_path} to {output}")
@@ -33,8 +33,10 @@ def export(
 @db_app.command()
 def clear(
     user_id: int = typer.Option(MY_USER_ID, help="Telegram user ID to clear"),
-    full: bool = typer.Option(False, help="Delete entire user entry (default: clear only chat history)"),
-    db_path: str = typer.Option(DB_PATH, help="Database file path")
+    full: bool = typer.Option(
+        False, help="Delete entire user entry (default: clear only chat history)"
+    ),
+    db_path: str = typer.Option(DB_PATH, help="Database file path"),
 ) -> None:
     """Clear data for a specific user."""
     with SqliteDict(db_path, autocommit=True) as db:

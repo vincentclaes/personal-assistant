@@ -21,7 +21,7 @@ from pydantic_ai import Agent as PydanticAgent, RunContext
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
-    SystemPromptPart
+    SystemPromptPart,
 )
 from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
@@ -35,8 +35,8 @@ from zoneinfo import ZoneInfo
 
 # Load environment variables
 load_dotenv()
-TOKEN = os.getenv('TELEGRAM_API_KEY')
-BROWSER_HEADLESS = os.getenv('BROWSER_HEADLESS', 'false').lower() == 'true'
+TOKEN = os.getenv("TELEGRAM_API_KEY")
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "false").lower() == "true"
 
 if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
@@ -85,10 +85,7 @@ def save_user_chat_history(user_id: int, user_data: dict, messages):
     # Convert messages to JSON-serializable format
     messages_json = to_jsonable_python(messages)
 
-    user_db[user_id] = {
-        "user": user_data,
-        "chat_history": messages_json
-    }
+    user_db[user_id] = {"user": user_data, "chat_history": messages_json}
 
 
 def update_system_prompt_in_history(messages: list) -> list:
@@ -112,12 +109,16 @@ def update_system_prompt_in_history(messages: list) -> list:
 
         if isinstance(first_part, SystemPromptPart):
             # Replace existing system prompt
-            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(first_msg.parts[1:])
+            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(
+                first_msg.parts[1:]
+            )
             updated_first = ModelRequest(parts=new_parts)
             return [updated_first] + messages[1:]
         else:
             # Add system prompt at the beginning
-            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(first_msg.parts)
+            new_parts = [SystemPromptPart(content=get_agent_system_prompt())] + list(
+                first_msg.parts
+            )
             updated_first = ModelRequest(parts=new_parts)
             return [updated_first] + messages[1:]
 
@@ -126,7 +127,8 @@ def update_system_prompt_in_history(messages: list) -> list:
 
 # System prompt for the orchestrator agent
 def get_agent_system_prompt():
-    return dedent(f"""
+    return dedent(
+        f"""
     You are a personal assistant bot that helps users with tasks like:
     - Booking gym sessions (requires browser automation)
     - Scheduling reminders for specific dates and times
@@ -136,9 +138,12 @@ def get_agent_system_prompt():
 
     When booking gym sessions, use the book_gym tool.
     For reminders, use the schedule_reminder tool with the message and a datetime object.
-    """)
+    """
+    )
+
 
 # Create orchestrator agent (no deps needed for simple tools)
+
 
 def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -151,15 +156,17 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
     controller = Controller()
 
     # Store pending question and response in context
-    if 'browser_state' not in context.user_data:
-        context.user_data['browser_state'] = {
-            'waiting_for_response': False,
-            'pending_question': None,
-            'user_response': None,
-            'response_event': asyncio.Event()
+    if "browser_state" not in context.user_data:
+        context.user_data["browser_state"] = {
+            "waiting_for_response": False,
+            "pending_question": None,
+            "user_response": None,
+            "response_event": asyncio.Event(),
         }
 
-    @controller.registry.action('Ask the user a question via Telegram and wait for their response')
+    @controller.registry.action(
+        "Ask the user a question via Telegram and wait for their response"
+    )
     async def ask_user(question: str) -> ActionResult:
         """
         Ask user a question via Telegram and wait for response.
@@ -170,39 +177,37 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
         Returns:
             ActionResult with the user's response
         """
-        state = context.user_data['browser_state']
+        state = context.user_data["browser_state"]
 
         # Send question to Telegram using bot
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🤖 Browser Agent asks:\n\n{question}\n\n(Reply with your answer)"
+            text=f"🤖 Browser Agent asks:\n\n{question}\n\n(Reply with your answer)",
         )
 
         # Mark that we're waiting for response
-        state['waiting_for_response'] = True
-        state['pending_question'] = question
-        state['user_response'] = None
-        state['response_event'].clear()
+        state["waiting_for_response"] = True
+        state["pending_question"] = question
+        state["user_response"] = None
+        state["response_event"].clear()
 
         # Wait for user to respond
-        await state['response_event'].wait()
-
+        await state["response_event"].wait()
 
         # Get the response
-        user_response = state['user_response']
-        state['waiting_for_response'] = False
-        state['pending_question'] = None
+        user_response = state["user_response"]
+        state["waiting_for_response"] = False
+        state["pending_question"] = None
 
         memory = f"Asked user: '{question}'. User responded: '{user_response}'"
-        return ActionResult(
-            extracted_content=user_response,
-            long_term_memory=memory
-        )
+        return ActionResult(extracted_content=user_response, long_term_memory=memory)
 
-    @controller.registry.action('Send the user a final update via Telegram before ending the session')
+    @controller.registry.action(
+        "Send the user a final update via Telegram before ending the session"
+    )
     async def send_final_update(message: str) -> ActionResult:
         """
-        Send a final informational message to the user via Telegram (no response needed). 
+        Send a final informational message to the user via Telegram (no response needed).
         Typically when a session is booked, nothing is available or an error occurred.
 
         Args:
@@ -212,20 +217,16 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
             ActionResult confirming the message was sent
         """
         text = f"🤖 Browser Agent final update:\n\n{message}"
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=text
-        )
+        await context.bot.send_message(chat_id=chat_id, text=text)
 
-        return ActionResult(
-                is_done=True,
-                success=False,
-                long_term_memory=text
-        )
+        return ActionResult(is_done=True, success=False, long_term_memory=text)
 
     return controller
 
-async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYPE, task: str):
+
+async def run_browser_automation(
+    chat_id: int, context: ContextTypes.DEFAULT_TYPE, task: str
+):
     """
     Run browser automation with Telegram integration.
 
@@ -234,7 +235,9 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
         context: Telegram Context object
         task: Task description for browser agent
     """
-    await context.bot.send_message(chat_id=chat_id, text="🌐 Starting browser automation...")
+    await context.bot.send_message(
+        chat_id=chat_id, text="🌐 Starting browser automation..."
+    )
 
     # Create browser and controller
     browser = Browser(headless=BROWSER_HEADLESS)
@@ -247,8 +250,10 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
         browser=browser,
         controller=controller,
         use_vision=True,
-        sensitive_data= {"x_user": "vincent.v.claes@gmail.com", "x_pass": os.getenv("QORE_PASSWORD")}
-
+        sensitive_data={
+            "x_user": "vincent.v.claes@gmail.com",
+            "x_pass": os.getenv("QORE_PASSWORD"),
+        },
     )
 
     try:
@@ -256,13 +261,13 @@ async def run_browser_automation(chat_id: int, context: ContextTypes.DEFAULT_TYP
         result = await agent.run()
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"✅ Browser automation completed!\n\nSteps taken: {len(result.history)}"
+            text=f"✅ Browser automation completed!\n\nSteps taken: {len(result.history)}",
         )
     except Exception as e:
         await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ Error during automation: {e}"
+            chat_id=chat_id, text=f"❌ Error during automation: {e}"
         )
+
 
 class PTBSQLiteJobStore(SQLAlchemyJobStore):
     """SQLite jobstore that makes telegram.ext.Job class storable."""
@@ -325,6 +330,7 @@ class PTBSQLiteJobStore(SQLAlchemyJobStore):
         job: APSJob = super()._reconstitute_job(job_state)
         return self._restore_job(job)
 
+
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     JobQueue callback for sending reminders.
@@ -349,13 +355,11 @@ async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"❌ Error sending reminder: {e}")
 
 
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages."""
-    
+
     orchestrator_agent = PydanticAgent(
-        'openai:gpt-5-mini',
-        system_prompt=get_agent_system_prompt()
+        "openai:gpt-5-mini", system_prompt=get_agent_system_prompt()
     )
 
     @orchestrator_agent.tool
@@ -365,7 +369,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         cron_expression: str,
         start_datetime: datetime.datetime | None = None,
         end_datetime: datetime.datetime | None = None,
-        timezone_str: str = "Europe/Brussels"
+        timezone_str: str = "Europe/Brussels",
     ) -> str:
         """
         Schedule a recurring reminder using a cron expression with optional start/end times.
@@ -451,7 +455,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             day_of_week=day_of_week,
             start_date=start_datetime,
             end_date=end_datetime,
-            timezone=tz
+            timezone=tz,
         )
 
         context.job_queue.run_custom(
@@ -459,10 +463,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             job_kwargs={
                 "trigger": trigger,
                 "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
-                "replace_existing": True
+                "replace_existing": True,
             },
             chat_id=chat_id,
-            data={"message": message}
+            data={"message": message},
         )
 
         # Build confirmation message
@@ -580,20 +584,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return "Started browser automation in background"
 
-            
-
     user = update.effective_user
     message_text = update.message.text
     logger.info(f"Received from {user.first_name} ({user.id}): {message_text}")
 
     # Check if browser is waiting for response
-    if 'browser_state' in context.user_data:
-        state = context.user_data['browser_state']
-        if state.get('waiting_for_response'):
+    if "browser_state" in context.user_data:
+        state = context.user_data["browser_state"]
+        if state.get("waiting_for_response"):
             # This is a response to browser agent's question
             logger.info(f"Forwarding response to browser: {message_text}")
-            state['user_response'] = message_text
-            state['response_event'].set()
+            state["user_response"] = message_text
+            state["response_event"].set()
             return
 
     # Load chat history for this user
@@ -619,34 +621,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Extract the tool result (agent returns the last tool call result as output)
     output = result.output
     await update.message.reply_text(output)
-
-
+    return result
 
 def main() -> None:
     """Start the bot."""
 
-
     logger.info("Starting personal assistant bot...")
 
     # Get timezone from environment
-    TIMEZONE = ZoneInfo(os.getenv('TIMEZONE', 'Europe/Brussels'))
+    TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Brussels"))
 
     # Create application with JobQueue
-    application = (
-        Application.builder()
-        .token(TOKEN)
-        .concurrent_updates(False)
-        .build()
-    )
+    application = Application.builder().token(TOKEN).concurrent_updates(False).build()
 
     # Configure PTB-aware SQLite jobstore for persistence with timezone
-    jobstore = PTBSQLiteJobStore(
-        application=application,
-        url=f'sqlite:///{DB_PATH}'
-    )
+    jobstore = PTBSQLiteJobStore(application=application, url=f"sqlite:///{DB_PATH}")
     job_queue = application.job_queue
     job_queue.scheduler.add_jobstore(jobstore, alias="default")
-    logger.info(f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}")
+    logger.info(
+        f"✅ PTB JobStore configured with SQLite ({DB_PATH}) and timezone {TIMEZONE}"
+    )
 
     # Add message handler
     application.add_handler(
@@ -660,5 +654,5 @@ def main() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

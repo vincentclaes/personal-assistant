@@ -21,15 +21,18 @@ def test_db_export_command():
         with SqliteDict(str(db_path), autocommit=True) as db:
             db[12345] = {
                 "user": {"id": 12345, "first_name": "Vincent"},
-                "chat_history": [{"role": "user", "content": "Hello"}]
+                "chat_history": [{"role": "user", "content": "Hello"}],
             }
             db[67890] = {
                 "user": {"id": 67890, "first_name": "Alice"},
-                "chat_history": []
+                "chat_history": [],
             }
 
         # Run export command with custom paths
-        result = runner.invoke(app, ["db", "export", "--output", str(output_path), "--db-path", str(db_path)])
+        result = runner.invoke(
+            app,
+            ["db", "export", "--output", str(output_path), "--db-path", str(db_path)],
+        )
 
         # Verify command succeeded
         assert result.exit_code == 0, f"Command failed: {result.stdout}"
@@ -56,11 +59,13 @@ def test_clear_chat_history_only():
         with SqliteDict(str(db_path), autocommit=True) as db:
             db[12345] = {
                 "user": {"id": 12345, "first_name": "Vincent"},
-                "chat_history": [{"role": "user", "content": "Hello"}]
+                "chat_history": [{"role": "user", "content": "Hello"}],
             }
 
         # Run clear command without --full flag
-        result = runner.invoke(app, ["db", "clear", "--user-id", "12345", "--db-path", str(db_path)])
+        result = runner.invoke(
+            app, ["db", "clear", "--user-id", "12345", "--db-path", str(db_path)]
+        )
 
         # Verify command succeeded
         assert result.exit_code == 0
@@ -84,11 +89,14 @@ def test_db_clear_full_user_entry():
         with SqliteDict(str(db_path), autocommit=True) as db:
             db[12345] = {
                 "user": {"id": 12345, "first_name": "Vincent"},
-                "chat_history": [{"role": "user", "content": "Hello"}]
+                "chat_history": [{"role": "user", "content": "Hello"}],
             }
 
         # Run clear command with --full flag
-        result = runner.invoke(app, ["db", "clear", "--user-id", "12345", "--full", "--db-path", str(db_path)])
+        result = runner.invoke(
+            app,
+            ["db", "clear", "--user-id", "12345", "--full", "--db-path", str(db_path)],
+        )
 
         # Verify command succeeded
         assert result.exit_code == 0
@@ -111,7 +119,9 @@ def test_db_clear_nonexistent_user():
             pass
 
         # Run clear command for non-existent user
-        result = runner.invoke(app, ["db", "clear", "--user-id", "99999", "--db-path", str(db_path)])
+        result = runner.invoke(
+            app, ["db", "clear", "--user-id", "99999", "--db-path", str(db_path)]
+        )
 
         # Verify command reports user not found
         assert result.exit_code != 0
