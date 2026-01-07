@@ -9,7 +9,6 @@ from loguru import logger
 from telegram import Update
 from telegram.ext import (
     Application,
-    CommandHandler,
     MessageHandler,
     filters,
     ContextTypes,
@@ -31,13 +30,13 @@ from apscheduler.job import Job as APSJob
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from telegram.ext._jobqueue import Job
 
-from .database import DB_PATH
+from personal_assistant.database import DB_PATH
 from zoneinfo import ZoneInfo
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_API_KEY')
-BROWSER_HEADLESS = os.getenv('BROWSER_HEADLESS', 'true').lower() == 'true'
+BROWSER_HEADLESS = os.getenv('BROWSER_HEADLESS', 'false').lower() == 'true'
 
 if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
@@ -135,7 +134,7 @@ def get_agent_system_prompt():
     
     The current datetime is {datetime.datetime.now()}.
 
-    When booking gym sessions, use the dispatch_browser tool with a clear task description.
+    When booking gym sessions, use the book_gym tool.
     For reminders, use the schedule_reminder tool with the message and a datetime object.
     """)
 
@@ -483,14 +482,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return details
 
     @orchestrator_agent.tool
-    async def dispatch_browser(ctx: RunContext, task_description: str) -> str:
-        """Trigger browser automation for tasks like booking gym, browsing websites, etc.
+    async def book_gym(ctx: RunContext, booking_constraints: str) -> str:
+        """Book a personal training gym session. Only input we need is some indication of when to book te session.
+        The rest is handled by the browser agent.
 
         Args:
-            task_description: Clear description of what the browser should do
+            booking_constraints: Provide a guideline of when you would like to book the session. Can be broad or narrow.
         """
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        task_description = f"""
+        full_task = f"""
+            
+            ## Specific details for the gym session
+
+            {booking_constraints}
+
+            ## General steps to book a gym session
+
             Go to https://qore.clubplanner.be/ and log in using sensitive_data:
             - x_user = username
             - x_pass = password
@@ -569,7 +576,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         """
         # Start browser automation in background so message handler stays free
         context.application.create_task(
-            run_browser_automation(update.effective_chat.id, context, task_description)
+            run_browser_automation(update.effective_chat.id, context, full_task)
         )
         return "Started browser automation in background"
 

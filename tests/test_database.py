@@ -3,7 +3,6 @@ Test database module constants are properly defined and importable.
 """
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -43,7 +42,6 @@ def test_database_path_respects_env_var():
 def test_app_uses_database_constants():
     """Test that app.py imports DB_PATH from database.py."""
     # Import to verify modules load without errors
-    from personal_assistant import app
     from personal_assistant.database import DB_PATH
 
     # Verify database module is importable and app.py can use it
