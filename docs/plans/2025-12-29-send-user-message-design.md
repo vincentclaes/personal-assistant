@@ -70,11 +70,13 @@ if __name__ == '__main__':
 ### Usage Examples
 
 **From command line:**
+
 ```bash
 python send_user_message.py 123456789 "book gym"
 ```
 
 **From scheduler:**
+
 ```python
 from send_user_message import send_message_sync
 
@@ -83,6 +85,7 @@ def scheduled_gym_check():
 ```
 
 **From async code:**
+
 ```python
 from send_user_message import send_user_message
 
@@ -104,6 +107,7 @@ Create a simple test to verify the flow works end-to-end.
 ## Trade-offs
 
 **Pros:**
+
 - Dead simple - uses existing Telegram infrastructure
 - No IPC complexity
 - No new dependencies
@@ -111,10 +115,12 @@ Create a simple test to verify the flow works end-to-end.
 - Fail loudly - network/API errors propagate clearly
 
 **Cons:**
+
 - Requires network round-trip through Telegram's servers (adds ~100-500ms latency)
 - User will see the message in their Telegram chat
 - Requires bot token (already have it)
 
 **Accepted trade-offs:**
+
 - Network latency is acceptable for scheduled tasks
 - User seeing automated messages is actually desirable for transparency

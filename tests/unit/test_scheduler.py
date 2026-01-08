@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Unit test for APScheduler reminder scheduling with Telegram Application."""
 
+from collections.abc import AsyncGenerator
+
 import pytest
 import pytest_asyncio
-from collections.abc import AsyncGenerator
 from telegram.ext import Application
 
 from personal_assistant.app import (
-    create_application,
-    _schedule_cron_job,
-    _list_reminders,
     _delete_reminder,
+    _list_reminders,
+    _schedule_cron_job,
+    create_application,
 )
 
 

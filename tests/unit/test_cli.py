@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Test manage_db.py database management CLI."""
 
-import tempfile
 import json
+import tempfile
 from pathlib import Path
+
 from sqlitedict import SqliteDict
 from typer.testing import CliRunner
+
 from personal_assistant.cli import app
 
 
@@ -129,8 +131,8 @@ def test_db_clear_nonexistent_user():
 
 
 if __name__ == "__main__":
-    test_export_command()
+    test_db_export_command()
     test_clear_chat_history_only()
-    test_clear_full_user_entry()
-    test_clear_nonexistent_user()
+    test_db_clear_full_user_entry()
+    test_db_clear_nonexistent_user()
     print("✅ All tests passed!")

@@ -2,8 +2,10 @@
 """CLI for personal assistant."""
 
 import json
+
 import typer
 from sqlitedict import SqliteDict
+
 
 app = typer.Typer()
 db_app = typer.Typer()

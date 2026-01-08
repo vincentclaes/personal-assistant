@@ -103,6 +103,9 @@ sleep 90 && AWS_PROFILE=vincent aws logs tail /aws/ecs/personal-assistant-defaul
 ### Complete Deployment Pipeline
 
 ```bash
+# Login to ECR
+AWS_PROFILE=vincent aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 077590795309.dkr.ecr.eu-west-1.amazonaws.com
+
 # Build, tag, and push Docker image
 docker build --platform linux/amd64 --provenance=false -t personal-assistant:local . && \
 docker tag personal-assistant:local 077590795309.dkr.ecr.eu-west-1.amazonaws.com/personal-assistant/app:latest && \

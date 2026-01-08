@@ -12,12 +12,14 @@ Design for adding scheduling capabilities to the personal assistant, enabling us
 ### Core Components
 
 **Telegram Bot (Hub)**
+
 - Central interface running continuously
 - Handles all user interactions
 - Hosts APScheduler instance
 - Manages conversation flow with Pydantic AI agent
 
 **Pydantic AI Agent (Brain)**
+
 - Interprets natural language requests
 - Extracts intent and task parameters
 - Asks clarifying questions when details are unclear
@@ -25,12 +27,14 @@ Design for adding scheduling capabilities to the personal assistant, enabling us
 - Calls tools to execute actions
 
 **APScheduler with SQLite (Memory)**
+
 - Runs inside Telegram bot process
 - Stores scheduled jobs in SQLite database (schedules.db)
 - Survives process restarts
 - Triggers task execution at scheduled times
 
 **sqlitedict (Context Store)**
+
 - Stores task metadata and user preferences
 - Separate from APScheduler's job storage
 - Provides rich context when tasks execute
@@ -55,6 +59,7 @@ Design for adding scheduling capabilities to the personal assistant, enabling us
 ### APScheduler SQLite Store (schedules.db)
 
 Handles scheduling mechanics:
+
 - Job ID and trigger configuration (cron, interval, one-time)
 - Next run time and execution history
 - Job function reference and parameters
@@ -62,6 +67,7 @@ Handles scheduling mechanics:
 ### sqlitedict Store (task_metadata.db)
 
 Handles task context:
+
 - User's original natural language request
 - Clarification conversation history
 - Task-specific preferences
@@ -91,6 +97,7 @@ Handles task context:
 ### Data Flow
 
 When APScheduler triggers a job:
+
 1. Job handler receives job_id
 2. Looks up metadata in sqlitedict using job_id
 3. Gets user's Telegram chat_id and task preferences
@@ -102,21 +109,25 @@ When APScheduler triggers a job:
 ### Agent Tools
 
 **1. create_schedule**
+
 - Parameters: task_type, schedule_pattern, task_params
 - Creates job in APScheduler
 - Stores metadata in sqlitedict
 - Returns confirmation message
 
 **2. list_schedules**
+
 - Returns all active schedules for requesting user
 - Formats human-friendly descriptions
 
 **3. cancel_schedule**
+
 - Parameters: job_id or natural language reference
 - Removes from APScheduler and sqlitedict
 - Confirms cancellation
 
 **4. execute_gym_booking**
+
 - Called by scheduler at trigger time
 - Loads user preferences from sqlitedict
 - Runs browser automation to check slots
@@ -125,6 +136,7 @@ When APScheduler triggers a job:
 - Executes booking
 
 **5. send_reminder**
+
 - Called by scheduler at trigger time
 - Loads reminder message from sqlitedict
 - Sends Telegram message to user
@@ -201,17 +213,20 @@ Agent: "✓ Scheduled gym booking every Monday at 7am"
 ### Error Handling
 
 **Gym booking failures:**
+
 - Website down, no slots available, browser crashes
 - Send Telegram message: "⚠️ Couldn't book gym - no available slots. Try again?"
 - Provide [Retry] [Skip] buttons
 - Log error, don't crash scheduler
 
 **Reminder failures:**
+
 - Log error
 - Retry once after 5 minutes
 - If still fails, notify user of delivery failure
 
 **General principles:**
+
 - Never crash the scheduler
 - Always notify user of failures
 - Log all errors for debugging
@@ -220,11 +235,13 @@ Agent: "✓ Scheduled gym booking every Monday at 7am"
 ### Telegram Integration
 
 **Replace terminal input with buttons:**
+
 - Use `InlineKeyboardMarkup` for options
 - Handle `CallbackQueryHandler` for button clicks
 - Encode action context in callback_data
 
 **State management for pending actions:**
+
 - Store in memory dict: `{callback_id: action_context}`
 - Short-lived (5 min timeout)
 - Lost on restart is acceptable (user can retry)
@@ -270,6 +287,7 @@ Uses AsyncIOScheduler because python-telegram-bot is async.
 ### Pydantic AI Integration
 
 Agent runs inside Telegram message handlers:
+
 1. User sends message to bot
 2. Handler passes message to Pydantic AI agent with tools
 3. Agent interprets intent and calls appropriate tools
@@ -282,6 +300,7 @@ Agent runs inside Telegram message handlers:
 Current `book_gym.py` uses terminal `input()` via Controller action.
 
 **For scheduled execution:**
+
 - Remove `ask_user` Controller action
 - Make `book_gym.py` return available slots as data
 - Telegram bot formats slots as InlineKeyboard
@@ -289,12 +308,14 @@ Current `book_gym.py` uses terminal `input()` via Controller action.
 - Booking proceeds with selected slot
 
 **For manual execution (user runs script directly):**
+
 - Keep terminal-based flow as fallback/testing mode
 - Detect if running in bot context vs standalone
 
 ### Timezone Handling
 
 Configure APScheduler with user's timezone:
+
 - Set timezone when creating jobs
 - Store timezone in environment variable
 - "7am" means 7am local time, not UTC
@@ -352,15 +373,18 @@ def test_reminder_execution():
 ### Mocking Strategy
 
 **Mock:**
+
 - Telegram API calls (use python-telegram-bot test utilities)
 - Browser automation (mock book_gym to return fake data)
 - Time (use APScheduler test helpers for time simulation)
 
 **Don't mock:**
+
 - APScheduler (use real instance with test database)
 - sqlitedict (use real instance with temp file)
 
 **Test database cleanup:**
+
 - Create fresh test databases before each test
 - Clean up after each test
 - Use pytest fixtures for setup/teardown
@@ -370,18 +394,21 @@ def test_reminder_execution():
 ### AWS Deployment Options
 
 **Recommended: EC2 with systemd**
+
 - Run bot as systemd service
 - SQLite files on EBS volume
 - Simple, reliable, always running
 - Use t4g.micro (ARM) for cost efficiency
 
 **Alternative 1: ECS Fargate**
+
 - Dockerize bot
 - Mount EFS for persistent SQLite files
 - Auto-restart on crashes
 - More complex but more "cloud-native"
 
 **Alternative 2: Lightsail Container**
+
 - Simpler than ECS
 - Cheaper for small workloads
 - Still need persistent storage solution
@@ -389,11 +416,13 @@ def test_reminder_execution():
 ### Recommended Setup: EC2 + systemd
 
 **Storage:**
+
 - SQLite files in `/var/lib/telegram-bot/`
 - Regular backups to S3 (daily cron job)
 - EBS volume with snapshots enabled
 
 **Systemd service:**
+
 ```ini
 [Unit]
 Description=Personal Assistant Telegram Bot
@@ -414,6 +443,7 @@ WantedBy=multi-user.target
 ### Environment Variables
 
 Add to `.env`:
+
 ```
 TELEGRAM_API_KEY=<token>
 QORE_PASSWORD=<password>
@@ -426,17 +456,20 @@ DB_PATH=/var/lib/telegram-bot
 ### Monitoring
 
 **Logging with loguru:**
+
 - Log scheduled task creation/cancellation
 - Log task executions (success/failure)
 - Log agent tool calls
 - Log all errors with stack traces
 
 **CloudWatch Logs:**
+
 - Configure CloudWatch Logs agent on EC2
 - Ship logs to CloudWatch for debugging
 - Set up alarms for error rates
 
 **Health checks:**
+
 - Simple HTTP endpoint that returns 200 if scheduler is running
 - CloudWatch alarm if endpoint fails
 
@@ -445,12 +478,14 @@ DB_PATH=/var/lib/telegram-bot
 ### Initial Implementation
 
 **1. Gym Bookings**
+
 - Recurring (weekly pattern)
 - User preferences for time slots
 - Interactive confirmation before booking
 - Fallback time slots if preferred unavailable
 
 **2. Reminders**
+
 - One-time or recurring
 - Simple text message delivery
 - No user interaction required at execution time
@@ -458,6 +493,7 @@ DB_PATH=/var/lib/telegram-bot
 ### Future Extensions
 
 Design is extensible for additional task types:
+
 - Bill payment reminders with due dates
 - Medication reminders
 - Calendar event creation
@@ -467,6 +503,7 @@ Design is extensible for additional task types:
 ## Success Criteria
 
 **User Experience:**
+
 - User creates schedules with natural language
 - Agent asks clarifying questions when needed
 - Always confirms before creating schedule
@@ -474,12 +511,14 @@ Design is extensible for additional task types:
 - Easy to list and cancel schedules
 
 **Reliability:**
+
 - Schedules survive bot restarts
 - Errors don't crash scheduler
 - User always notified of execution status
 - Graceful degradation on failures
 
 **Maintainability:**
+
 - Simple monolithic structure
 - Clear separation of concerns
 - Easy to add new task types
@@ -490,11 +529,13 @@ Design is extensible for additional task types:
 Since this is a new feature, no migration needed. However:
 
 **Existing book_gym.py:**
+
 - Keep standalone functionality
 - Add bot integration mode
 - Preserve terminal-based testing capability
 
 **Existing telegram bot:**
+
 - Extend with scheduler and agent
 - Preserve existing simple message handling
 - Gradual rollout of scheduling features
@@ -502,6 +543,7 @@ Since this is a new feature, no migration needed. However:
 ## Open Questions & Future Considerations
 
 **Not in initial scope:**
+
 - Web dashboard for schedule management
 - Multi-user support (assume single user initially)
 - Advanced scheduling (business days, holidays)

@@ -4,15 +4,16 @@
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-from pydantic_core import to_jsonable_python
+
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
-    UserPromptPart,
-    TextPart,
     SystemPromptPart,
+    TextPart,
+    UserPromptPart,
 )
+from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
 
 
@@ -55,15 +56,15 @@ def test_user_chat_history_persistence():
 
             # Test 3: Retrieve and verify messages are correctly deserialized
             retrieved_history = get_user_chat_history(user_id)
-            assert (
-                len(retrieved_history) == 2
-            ), f"Should have 2 messages, got {len(retrieved_history)}"
-            assert isinstance(
-                retrieved_history[0], ModelRequest
-            ), "First message should be ModelRequest"
-            assert isinstance(
-                retrieved_history[1], ModelResponse
-            ), "Second message should be ModelResponse"
+            assert len(retrieved_history) == 2, (
+                f"Should have 2 messages, got {len(retrieved_history)}"
+            )
+            assert isinstance(retrieved_history[0], ModelRequest), (
+                "First message should be ModelRequest"
+            )
+            assert isinstance(retrieved_history[1], ModelResponse), (
+                "Second message should be ModelResponse"
+            )
 
             # Test 4: Update with more messages
             updated_messages = mock_messages + [
@@ -75,17 +76,17 @@ def test_user_chat_history_persistence():
 
             # Test 5: Verify all messages persisted
             final_history = get_user_chat_history(user_id)
-            assert (
-                len(final_history) == 4
-            ), f"Should have 4 messages, got {len(final_history)}"
+            assert len(final_history) == 4, (
+                f"Should have 4 messages, got {len(final_history)}"
+            )
 
             # Test 6: Verify JSON serialization/deserialization works correctly
             # Convert to JSON and back
             messages_json = to_jsonable_python(final_history)
             restored_messages = ModelMessagesTypeAdapter.validate_python(messages_json)
-            assert (
-                len(restored_messages) == 4
-            ), "Messages should survive JSON round-trip"
+            assert len(restored_messages) == 4, (
+                "Messages should survive JSON round-trip"
+            )
 
         print(
             "✅ Test passed: User data and chat history JSON persistence works correctly"
@@ -115,12 +116,12 @@ def test_system_prompt_update():
         updated = update_system_prompt_in_history(messages_with_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"
-    assert isinstance(
-        updated[0].parts[0], SystemPromptPart
-    ), "First part should be SystemPromptPart"
-    assert (
-        updated[0].parts[0].content == "New system prompt"
-    ), "System prompt should be replaced"
+    assert isinstance(updated[0].parts[0], SystemPromptPart), (
+        "First part should be SystemPromptPart"
+    )
+    assert updated[0].parts[0].content == "New system prompt", (
+        "System prompt should be replaced"
+    )
 
     # Test 2: Add system prompt when missing
     messages_without_prompt = [
@@ -135,12 +136,12 @@ def test_system_prompt_update():
         updated = update_system_prompt_in_history(messages_without_prompt)
 
     assert len(updated) == 2, "Should have same number of messages"
-    assert isinstance(
-        updated[0].parts[0], SystemPromptPart
-    ), "First part should be SystemPromptPart"
-    assert (
-        updated[0].parts[0].content == "New system prompt"
-    ), "System prompt should be added"
+    assert isinstance(updated[0].parts[0], SystemPromptPart), (
+        "First part should be SystemPromptPart"
+    )
+    assert updated[0].parts[0].content == "New system prompt", (
+        "System prompt should be added"
+    )
 
     # Test 3: Empty history returns empty
     empty_history = []

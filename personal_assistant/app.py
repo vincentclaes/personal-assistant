@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 
+import asyncio
 import datetime
 import os
-import asyncio
 from textwrap import dedent
-from dotenv import load_dotenv
-from loguru import logger
-from telegram import Update
-from telegram.ext import (
-    Application,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
+from zoneinfo import ZoneInfo
+
+from apscheduler.job import Job as APSJob
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.llm.openai.chat import ChatOpenAI
-
-from pydantic_ai import Agent as PydanticAgent, RunContext
+from dotenv import load_dotenv
+from loguru import logger
+from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai import RunContext
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
@@ -25,14 +22,18 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_jsonable_python
 from sqlitedict import SqliteDict
-
-from apscheduler.job import Job as APSJob
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from telegram import Update
+from telegram.ext import (
+    Application,
+    ContextTypes,
+    JobQueue,
+    MessageHandler,
+    filters,
+)
 from telegram.ext._jobqueue import Job
 
 from personal_assistant.database import DB_PATH
-from zoneinfo import ZoneInfo
-from telegram.ext import JobQueue
+
 
 # Load environment variables
 load_dotenv()
@@ -139,11 +140,9 @@ def get_agent_system_prompt():
 
     When booking gym sessions, use the book_gym tool.
     For reminders, use the schedule_reminder tool with the message and a datetime object.
+    Respond in a very concise manner and use numbered lists when providing options.
     """
     )
-
-
-# Create orchestrator agent (no deps needed for simple tools)
 
 
 def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
@@ -429,7 +428,7 @@ def _list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     jobs = job_queue.jobs(pattern=pattern)
 
     for job in jobs:
-        message = job.data.get('message', 'N/A')
+        message = job.data.get("message", "N/A")
         reminders.append(f"{message}")
 
     return reminders
@@ -458,7 +457,7 @@ def _delete_reminder(job_queue: JobQueue, chat_id: int, cron_expression: str) ->
         job.remove()
         return f"✅ Reminder deleted successfully (ID: {job_id})"
     else:
-        return f"❌ No reminder found with the specified schedule"
+        return "❌ No reminder found with the specified schedule"
 
 
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -774,6 +773,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     output = result.output
     await update.message.reply_text(output)
     return result
+
 
 def create_application() -> Application:
     """Create and configure the Telegram bot application."""

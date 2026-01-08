@@ -6,17 +6,21 @@
 ## Commands
 
 ### Export Command
+
 ```bash
 manage_db.py export [--output PATH]
 ```
+
 - Exports all database data to JSON
 - Default output: `app.db.json`
 - Shows count of exported entries
 
 ### Clear Command
+
 ```bash
 manage_db.py clear --user-id USER_ID [--full]
 ```
+
 - Clears data for specific user
 - `--user-id`: Required Telegram user ID (integer)
 - `--full`: Optional flag
@@ -26,6 +30,7 @@ manage_db.py clear --user-id USER_ID [--full]
 ## Implementation
 
 **Minimal approach:**
+
 - Single file with two Typer commands
 - Reuse existing export logic
 - Use same SqliteDict pattern as app.py
@@ -33,6 +38,7 @@ manage_db.py clear --user-id USER_ID [--full]
 - No try-except blocks unless necessary
 
 **Database structure:**
+
 ```python
 {
   user_id: {
@@ -43,6 +49,7 @@ manage_db.py clear --user-id USER_ID [--full]
 ```
 
 ## Safety
+
 - Clear requires explicit `--user-id` (no clear-all)
 - Error if user not found
 - Print what was deleted

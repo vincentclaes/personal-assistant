@@ -2,10 +2,12 @@
 """Integration test for handle_message function."""
 
 from pathlib import Path
-from pydantic_ai import AgentRunResult
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from pydantic_ai import AgentRunResult
 from sqlitedict import SqliteDict
+
 from personal_assistant.app import handle_message
 
 
@@ -16,7 +18,6 @@ async def test_handle_message_responds_to_greeting(tmp_path: Path):
         "personal_assistant.app.user_db",
         SqliteDict(str(tmp_path / "test.db"), autocommit=True),
     ):
-
         # Mock Telegram Update (external boundary)
         mock_update = MagicMock()
         mock_update.effective_user.id = 123
