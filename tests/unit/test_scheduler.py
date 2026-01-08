@@ -6,7 +6,7 @@ import pytest_asyncio
 from collections.abc import AsyncGenerator
 from telegram.ext import Application
 
-from personal_assistant.app import create_application, _schedule_cron_job, list_reminders
+from personal_assistant.app import create_application, _schedule_cron_job, _list_reminders
 
 
 @pytest_asyncio.fixture
@@ -69,7 +69,7 @@ async def test_list_reminders(application: Application):
     )
 
     # List reminders
-    reminders = list_reminders(job_queue, chat_id)
+    reminders = _list_reminders(job_queue, chat_id)
 
     # Verify reminder is in the list
     assert len(reminders) == 1

@@ -411,7 +411,7 @@ def _schedule_cron_job(
     return details
 
 
-def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
+def _list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     """
     List all reminders for a specific chat_id.
 
@@ -547,7 +547,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return details
 
     @orchestrator_agent.tool
-    def get_reminders(ctx: RunContext) -> str:
+    def list_reminders(ctx: RunContext) -> str:
         """
         List all scheduled reminders for the current user.
 
@@ -565,7 +565,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         - "List all my reminders"
         """
         chat_id = update.effective_chat.id
-        reminders = list_reminders(context.job_queue, chat_id)
+        reminders = _list_reminders(context.job_queue, chat_id)
 
         if not reminders:
             return "You have no scheduled reminders."
