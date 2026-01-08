@@ -435,6 +435,32 @@ def _list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     return reminders
 
 
+def _delete_reminder(job_queue: JobQueue, chat_id: int, cron_expression: str) -> str:
+    """
+    Delete a specific reminder by its cron expression.
+
+    Args:
+        job_queue: Telegram JobQueue instance
+        chat_id: Chat ID of the reminder owner
+        cron_expression: The cron expression that identifies the reminder
+
+    Returns:
+        Confirmation message indicating success or failure
+    """
+    # Build the job ID using the same pattern as when scheduling
+    job_id = f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}"
+
+    # Get the scheduler and try to remove the job
+    scheduler = job_queue.scheduler
+    job = scheduler.get_job(job_id)
+
+    if job:
+        job.remove()
+        return f"✅ Reminder deleted successfully (ID: {job_id})"
+    else:
+        return f"❌ No reminder found with the specified schedule"
+
+
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     JobQueue callback for sending reminders.
@@ -574,6 +600,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for i, reminder in enumerate(reminders, 1):
             result += f"{i}. {reminder}\n"
 
+        return result
+
+    @orchestrator_agent.tool
+    def delete_reminder(ctx: RunContext, cron_expression: str) -> str:
+        """
+        Delete a specific reminder by its cron expression.
+
+        Use this tool when the user wants to remove or cancel a scheduled reminder.
+        The reminder is identified by its cron expression (schedule pattern).
+
+        Args:
+            cron_expression: The 6-field cron expression that identifies the reminder to delete.
+                This must match exactly the cron expression used when scheduling the reminder.
+                Format: "second minute hour day month day_of_week"
+
+                Examples:
+                - "0 0 9 * * *" - Daily 9 AM reminder
+                - "0 30 14 * * 1-5" - Weekday 2:30 PM reminder
+                - "*/10 * * * * *" - Every 10 seconds reminder
+
+        Returns:
+            Confirmation message indicating whether the reminder was successfully deleted
+            or if no matching reminder was found.
+
+        Usage examples:
+        - "Delete my 9 AM daily reminder"
+        - "Cancel the reminder at 2:30 PM"
+        - "Remove my morning standup reminder"
+
+        Note: To help users identify which reminder to delete, use the list_reminders tool first
+        to show them their active reminders and their schedules.
+        """
+        chat_id = update.effective_chat.id
+        result = _delete_reminder(context.job_queue, chat_id, cron_expression)
+        logger.info(f"Delete reminder result for chat_id={chat_id}: {result}")
         return result
 
     @orchestrator_agent.tool
