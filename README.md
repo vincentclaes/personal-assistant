@@ -2,26 +2,6 @@
 
 A Python-based personal assistant with Telegram bot integration and automated scheduling capabilities.
 
-## Project Structure
-
-```text
-personal-assistant/
-├── personal_assistant/     # Source code
-│   ├── app.py             # Main Telegram bot application
-│   ├── cli.py             # CLI entrypoint (pa command)
-│   └── database.py        # Database configuration
-├── tests/                 # Test suite
-│   ├── test_app.py
-│   ├── test_database.py
-│   ├── test_chat_history.py
-│   └── test_manage_db.py
-├── ci/                    # CI/CD scripts
-│   └── deploy-image.sh    # Automated deployment script
-├── terraform/             # Infrastructure as code
-├── Dockerfile             # Container definition
-└── pyproject.toml         # Dependencies
-```
-
 ## Deployment Commands
 
 ### Automated Deployment

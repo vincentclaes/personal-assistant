@@ -11,6 +11,7 @@ COPY pyproject.toml uv.lock ./
 
 # Install dependencies
 RUN uv sync --frozen --no-cache
+RUN uvx playwright install chrome
 
 # Copy application code
 COPY personal_assistant/ ./personal_assistant/

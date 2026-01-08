@@ -48,7 +48,7 @@ echo -e "${GREEN}✓ Image pushed successfully${NC}"
 echo ""
 
 # Step 5: Force ECS redeployment
-echo -e "${YELLOW}[5/5] Forcing ECS service redeployment...${NC}"
+echo -e "${YELLOW}[5/6] Forcing ECS service redeployment...${NC}"
 AWS_PROFILE=${AWS_PROFILE} aws ecs update-service \
   --cluster ${ECS_CLUSTER} \
   --service ${ECS_SERVICE} \
@@ -58,10 +58,16 @@ AWS_PROFILE=${AWS_PROFILE} aws ecs update-service \
 echo -e "${GREEN}✓ ECS service redeployment initiated${NC}"
 echo ""
 
+# Step 6: Wait for deployment to stabilize
+echo -e "${YELLOW}[6/6] Waiting for service to stabilize...${NC}"
+AWS_PROFILE=${AWS_PROFILE} aws ecs wait services-stable \
+  --cluster ${ECS_CLUSTER} \
+  --services ${ECS_SERVICE} \
+  --region ${AWS_REGION}
+echo -e "${GREEN}✓ Service is stable and running${NC}"
+echo ""
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Deployment completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
-echo ""
-echo -e "${BLUE}To view logs (wait ~90 seconds for deployment):${NC}"
-echo -e "  sleep 90 && AWS_PROFILE=${AWS_PROFILE} aws logs tail /aws/ecs/${ECS_SERVICE}/app --region ${AWS_REGION} --since 3m --format short"
 echo ""
