@@ -32,6 +32,7 @@ from telegram.ext._jobqueue import Job
 
 from personal_assistant.database import DB_PATH
 from zoneinfo import ZoneInfo
+from telegram.ext import JobQueue
 
 # Load environment variables
 load_dotenv()
@@ -331,6 +332,83 @@ class PTBSQLiteJobStore(SQLAlchemyJobStore):
         return self._restore_job(job)
 
 
+def _schedule_cron_job(
+    job_queue: JobQueue,
+    chat_id: int,
+    message: str,
+    cron_expression: str,
+    timezone_str: str = "Europe/Brussels",
+    start_datetime: datetime.datetime | None = None,
+    end_datetime: datetime.datetime | None = None,
+) -> str:
+    """
+    Schedule a cron job on the job queue.
+
+    Args:
+        job_queue: Telegram JobQueue instance
+        chat_id: Chat ID to send reminders to
+        message: Reminder message
+        cron_expression: 6-field cron string (second minute hour day month day_of_week)
+        timezone_str: Timezone for the schedule
+        start_datetime: Optional start time for the schedule
+        end_datetime: Optional end time for the schedule
+
+    Returns:
+        Confirmation message with schedule details
+    """
+    from apscheduler.triggers.cron import CronTrigger
+
+    # Parse cron expression
+    parts = cron_expression.split()
+    if len(parts) != 6:
+        return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
+
+    second, minute, hour, day, month, day_of_week = parts
+
+    # Set timezone
+    tz = ZoneInfo(timezone_str)
+
+    # Create trigger with all parameters
+    trigger = CronTrigger(
+        second=second,
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+        start_date=start_datetime,
+        end_date=end_datetime,
+        timezone=tz,
+    )
+
+    job_queue.run_custom(
+        callback=reminder_callback,
+        job_kwargs={
+            "trigger": trigger,
+            "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
+            "replace_existing": True,
+        },
+        chat_id=chat_id,
+        data={"message": message},
+    )
+
+    # Build confirmation message
+    details = "✅ Recurring reminder scheduled:\n"
+    details += f"📝 Message: '{message}'\n"
+    details += f"⏱️ Schedule: {cron_expression}\n"
+    details += f"🌍 Timezone: {timezone_str}\n"
+    if start_datetime:
+        details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "▶️ Starts: Immediately\n"
+    if end_datetime:
+        details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "⏹️ Ends: Never (runs indefinitely)\n"
+
+    return details
+
+
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     JobQueue callback for sending reminders.
@@ -430,58 +508,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
               start_datetime=datetime(2025, 1, 6, 9, 0)  # Next Monday
           )
         """
-        from apscheduler.triggers.cron import CronTrigger
-        from zoneinfo import ZoneInfo
-
-        chat_id = update.effective_chat.id
-
-        # Parse cron expression
-        parts = cron_expression.split()
-        if len(parts) != 6:
-            return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
-
-        second, minute, hour, day, month, day_of_week = parts
-
-        # Set timezone
-        tz = ZoneInfo(timezone_str)
-
-        # Create trigger with all parameters
-        trigger = CronTrigger(
-            second=second,
-            minute=minute,
-            hour=hour,
-            day=day,
-            month=month,
-            day_of_week=day_of_week,
-            start_date=start_datetime,
-            end_date=end_datetime,
-            timezone=tz,
+        details = _schedule_cron_job(
+            job_queue=context.job_queue,
+            chat_id=update.effective_chat.id,
+            message=message,
+            cron_expression=cron_expression,
+            timezone_str=timezone_str,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
         )
-
-        context.job_queue.run_custom(
-            callback=reminder_callback,
-            job_kwargs={
-                "trigger": trigger,
-                "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
-                "replace_existing": True,
-            },
-            chat_id=chat_id,
-            data={"message": message},
-        )
-
-        # Build confirmation message
-        details = "✅ Recurring reminder scheduled:\n"
-        details += f"📝 Message: '{message}'\n"
-        details += f"⏱️ Schedule: {cron_expression}\n"
-        details += f"🌍 Timezone: {timezone_str}\n"
-        if start_datetime:
-            details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        else:
-            details += "▶️ Starts: Immediately\n"
-        if end_datetime:
-            details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        else:
-            details += "⏹️ Ends: Never (runs indefinitely)\n"
         logger.info(details)
         return details
 
@@ -623,10 +658,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(output)
     return result
 
-def main() -> None:
-    """Start the bot."""
+def create_application() -> Application:
+    """Create and configure the Telegram bot application."""
 
-    logger.info("Starting personal assistant bot...")
+    logger.info("Creating personal assistant bot application...")
 
     # Get timezone from environment
     TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Brussels"))
@@ -647,6 +682,12 @@ def main() -> None:
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
+    return application
+
+
+def main() -> None:
+    """Start the bot."""
+    application = create_application()
     # Run the bot
     logger.info("Bot is running! You can now book gym sessions or schedule reminders.")
     logger.info("JobQueue with APScheduler + SQLite persistence is active.")
