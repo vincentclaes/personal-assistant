@@ -381,13 +381,15 @@ def _schedule_cron_job(
         timezone=tz,
     )
 
+    job_id = f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}"
     job_queue.run_custom(
         callback=reminder_callback,
         job_kwargs={
             "trigger": trigger,
-            "id": f"reminder_{chat_id}_{cron_expression.replace(' ', '_')}",
+            "id": job_id,
             "replace_existing": True,
         },
+        name=job_id,
         chat_id=chat_id,
         data={"message": message},
     )
@@ -407,6 +409,30 @@ def _schedule_cron_job(
         details += "⏹️ Ends: Never (runs indefinitely)\n"
 
     return details
+
+
+def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
+    """
+    List all reminders for a specific chat_id.
+
+    Args:
+        job_queue: Telegram JobQueue instance
+        chat_id: Chat ID to filter reminders by
+
+    Returns:
+        List of strings describing each reminder
+    """
+    reminders = []
+
+    # Use regex pattern to filter jobs by chat_id in the job name
+    pattern = f"^reminder_{chat_id}_"
+    jobs = job_queue.jobs(pattern=pattern)
+
+    for job in jobs:
+        message = job.data.get('message', 'N/A')
+        reminders.append(f"{message}")
+
+    return reminders
 
 
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -519,6 +545,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         logger.info(details)
         return details
+
+    @orchestrator_agent.tool
+    def get_reminders(ctx: RunContext) -> str:
+        """
+        List all scheduled reminders for the current user.
+
+        This tool retrieves all active recurring reminders that have been scheduled
+        for the current chat. Use this when the user asks to see their reminders,
+        check what reminders they have, or wants to know what's scheduled.
+
+        Returns:
+            A formatted string listing all active reminders with their messages.
+            If no reminders are found, returns a message indicating no reminders exist.
+
+        Usage examples:
+        - "What reminders do I have?"
+        - "Show me my scheduled reminders"
+        - "List all my reminders"
+        """
+        chat_id = update.effective_chat.id
+        reminders = list_reminders(context.job_queue, chat_id)
+
+        if not reminders:
+            return "You have no scheduled reminders."
+
+        result = "📋 Your scheduled reminders:\n\n"
+        for i, reminder in enumerate(reminders, 1):
+            result += f"{i}. {reminder}\n"
+
+        return result
 
     @orchestrator_agent.tool
     async def book_gym(ctx: RunContext, booking_constraints: str) -> str:

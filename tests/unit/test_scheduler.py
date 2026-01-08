@@ -6,7 +6,7 @@ import pytest_asyncio
 from collections.abc import AsyncGenerator
 from telegram.ext import Application
 
-from personal_assistant.app import create_application, _schedule_cron_job
+from personal_assistant.app import create_application, _schedule_cron_job, list_reminders
 
 
 @pytest_asyncio.fixture
@@ -52,3 +52,25 @@ async def test_schedule_reminder_with_application(application: Application):
     scheduler = job_queue.scheduler
     aps_job = scheduler.get_job(job_id)
     assert aps_job is not None
+
+
+@pytest.mark.asyncio
+async def test_list_reminders(application: Application):
+    """Test listing all reminders for a chat_id."""
+    job_queue = application.job_queue
+    chat_id = 123456
+
+    # Schedule a reminder
+    _schedule_cron_job(
+        job_queue=job_queue,
+        chat_id=chat_id,
+        message="Daily standup",
+        cron_expression="0 0 9 * * *",
+    )
+
+    # List reminders
+    reminders = list_reminders(job_queue, chat_id)
+
+    # Verify reminder is in the list
+    assert len(reminders) == 1
+    assert "Daily standup" in reminders[0]
