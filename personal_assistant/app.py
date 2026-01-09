@@ -185,7 +185,7 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
         # Send question to Telegram using bot
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🤖 Browser Agent asks:\n\n{question}\n\n(Reply with your answer)",
+            text=f"{question}",
         )
 
         # Mark that we're waiting for response
@@ -219,10 +219,9 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
         Returns:
             ActionResult confirming the message was sent
         """
-        text = f"🤖 Browser Agent final update:\n\n{message}"
-        await context.bot.send_message(chat_id=chat_id, text=text)
+        await context.bot.send_message(chat_id=chat_id, text=message)
 
-        return ActionResult(is_done=True, success=False, long_term_memory=text)
+        return ActionResult(is_done=True, success=False, long_term_memory=message)
 
     @controller.registry.action(
         "Stop the booking process when user requests to cancel or abort"
@@ -259,7 +258,7 @@ async def run_browser_automation(
         task: Task description for browser agent
     """
     await context.bot.send_message(
-        chat_id=chat_id, text="🌐 Starting browser automation..."
+        chat_id=chat_id, text="🔍 Looking for available sessions..."
     )
 
     # Create browser and controller
@@ -280,16 +279,9 @@ async def run_browser_automation(
     )
 
     try:
-        # Run the agent (async)
-        result = await agent.run()
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"✅ Browser automation completed!\n\nSteps taken: {len(result.history)}",
-        )
+        await agent.run()
     except Exception as e:
-        await context.bot.send_message(
-            chat_id=chat_id, text=f"❌ Error during automation: {e}"
-        )
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
 class PTBSQLiteJobStore(SQLAlchemyJobStore):
@@ -756,7 +748,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.application.create_task(
             run_browser_automation(update.effective_chat.id, context, full_task)
         )
-        return "Started browser automation in background"
+        return "On it!"
 
     user = update.effective_user
     message_text = update.message.text
