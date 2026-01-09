@@ -144,8 +144,6 @@ def get_agent_system_prompt():
     Tools:
     - Gym: book_gym tool
     - Reminders: schedule_reminder tool
-
-    Always confirm before booking/scheduling.
     """
     )
 
@@ -225,6 +223,26 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
         await context.bot.send_message(chat_id=chat_id, text=text)
 
         return ActionResult(is_done=True, success=False, long_term_memory=text)
+
+    @controller.registry.action(
+        "Stop the booking process when user requests to cancel or abort"
+    )
+    async def cancel_booking() -> ActionResult:
+        """
+        Cancel the current booking process when the user explicitly requests to stop.
+        Use this when the user says things like "cancel", "stop", "never mind", "abort", etc.
+
+        Returns:
+            ActionResult indicating the process was cancelled
+        """
+        text = "🛑 Booking process cancelled as requested."
+        await context.bot.send_message(chat_id=chat_id, text=text)
+
+        return ActionResult(
+            is_done=True,
+            success=False,
+            long_term_memory="User requested to cancel the booking process.",
+        )
 
     return controller
 
