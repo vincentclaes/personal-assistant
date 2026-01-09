@@ -25,13 +25,13 @@ variable "ecr_image_uri" {
 variable "cpu" {
   description = "CPU units for ECS task (256 = 0.25 vCPU)"
   type        = number
-  default     = 256
+  default     = 2048
 }
 
 variable "memory" {
   description = "Memory for ECS task in MiB"
   type        = number
-  default     = 512
+  default     = 4096
 }
 
 variable "telegram_api_key" {
