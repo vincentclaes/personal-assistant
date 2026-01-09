@@ -7,11 +7,11 @@ import pytest
 import pytest_asyncio
 from telegram.ext import Application
 
-from personal_assistant.app import (
-    _delete_reminder,
-    _list_reminders,
-    _schedule_cron_job,
-    create_application,
+from personal_assistant.app import create_application
+from personal_assistant.scheduler import (
+    delete_reminder,
+    list_reminders,
+    schedule_cron_job,
 )
 
 
@@ -40,8 +40,8 @@ async def test_schedule_reminder_with_application(application: Application):
     message = "Daily standup reminder"
     cron_expression = "0 0 9 * * *"
 
-    # Schedule using the private function (same as production code)
-    result = _schedule_cron_job(
+    # Schedule using the function from scheduler module
+    result = schedule_cron_job(
         job_queue=job_queue,
         chat_id=chat_id,
         message=message,
@@ -67,7 +67,7 @@ async def test_list_reminders(application: Application):
     chat_id = 123456
 
     # Schedule a reminder
-    _schedule_cron_job(
+    schedule_cron_job(
         job_queue=job_queue,
         chat_id=chat_id,
         message="Daily standup",
@@ -75,7 +75,7 @@ async def test_list_reminders(application: Application):
     )
 
     # List reminders
-    reminders = _list_reminders(job_queue, chat_id)
+    reminders = list_reminders(job_queue, chat_id)
 
     # Verify reminder is in the list
     assert len(reminders) == 1
@@ -90,7 +90,7 @@ async def test_delete_reminder(application: Application):
     cron_expression = "0 0 9 * * *"
 
     # Schedule a reminder
-    _schedule_cron_job(
+    schedule_cron_job(
         job_queue=job_queue,
         chat_id=chat_id,
         message="Daily standup",
@@ -98,13 +98,13 @@ async def test_delete_reminder(application: Application):
     )
 
     # Verify it exists
-    reminders = _list_reminders(job_queue, chat_id)
+    reminders = list_reminders(job_queue, chat_id)
     assert len(reminders) == 1
 
     # Delete the reminder
-    result = _delete_reminder(job_queue, chat_id, cron_expression)
+    result = delete_reminder(job_queue, chat_id, cron_expression)
 
     # Verify it was deleted
     assert "deleted" in result.lower() or "removed" in result.lower()
-    reminders_after = _list_reminders(job_queue, chat_id)
+    reminders_after = list_reminders(job_queue, chat_id)
     assert len(reminders_after) == 0
