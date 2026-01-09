@@ -15,7 +15,7 @@ from personal_assistant.app import handle_message
 async def test_handle_message_responds_to_greeting(tmp_path: Path):
     """Test that handle_message processes a greeting and sends a response."""
     with patch(
-        "personal_assistant.app.user_db",
+        "personal_assistant.chat.user_db",
         SqliteDict(str(tmp_path / "test.db"), autocommit=True),
     ):
         # Mock Telegram Update (external boundary)
