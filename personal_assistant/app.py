@@ -6,11 +6,12 @@ import os
 from textwrap import dedent
 from zoneinfo import ZoneInfo
 
+import boto3
 from apscheduler.job import Job as APSJob
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 from dotenv import load_dotenv
 from loguru import logger
 from pydantic_ai import Agent as PydanticAgent
@@ -134,7 +135,7 @@ def get_agent_system_prompt():
 
     Current datetime: {datetime.datetime.now()}
 
-    RESPONSE RULES (MANDATORY):
+    RESPONSE RULES:
     - Maximum 2-3 short sentences per response
     - Options: max 3-4 choices, one line each, numbered
     - No explanations unless asked
@@ -265,7 +266,10 @@ async def run_browser_automation(
     # Create browser and controller
     browser = Browser(headless=BROWSER_HEADLESS)
     controller = create_telegram_aware_controller(chat_id, context)
-    llm = ChatOpenAI(model="gpt-4o")
+
+    llm = ChatAWSBedrock(
+        model="eu.anthropic.claude-sonnet-4-5-20250929-v1:0", session=boto3.Session()
+    )
 
     agent = Agent(
         task=task,
@@ -511,7 +515,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle incoming messages."""
 
     orchestrator_agent = PydanticAgent(
-        "openai:gpt-5-mini", system_prompt=get_agent_system_prompt()
+        "bedrock:eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        system_prompt=get_agent_system_prompt(),
     )
 
     @orchestrator_agent.tool

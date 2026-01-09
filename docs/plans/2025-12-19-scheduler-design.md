@@ -447,8 +447,9 @@ Add to `.env`:
 ```
 TELEGRAM_API_KEY=<token>
 QORE_PASSWORD=<password>
-OPENAI_API_KEY=<key>
-PYDANTIC_AI_MODEL=openai:gpt-4
+AWS_ACCESS_KEY_ID=<key>
+AWS_SECRET_ACCESS_KEY=<secret>
+AWS_REGION=eu-west-1
 TIMEZONE=Europe/Brussels
 DB_PATH=/var/lib/telegram-bot
 ```

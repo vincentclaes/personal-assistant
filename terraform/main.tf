@@ -87,6 +87,16 @@ module "ecs_service" {
   create_task_exec_iam_role = true
   create_tasks_iam_role     = true
 
+  # Attach Bedrock permissions to the task role
+  tasks_iam_role_statements = [
+    {
+      actions = [
+        "bedrock:Invoke*"
+      ]
+      resources = ["*"]
+    }
+  ]
+
   container_definitions = {
     app = {
       image = var.ecr_image_uri
@@ -108,10 +118,6 @@ module "ecs_service" {
         {
           name  = "QORE_PASSWORD"
           value = var.qore_password
-        },
-        {
-          name  = "OPENAI_API_KEY"
-          value = var.openai_api_key
         },
         {
           name  = "BROWSER_HEADLESS"

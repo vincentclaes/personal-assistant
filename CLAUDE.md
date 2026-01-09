@@ -115,7 +115,8 @@ uv run python -m pytest tests/test_feature.py
 **Current implementation:**
 
 - Main agent is in `personal_assistant/app.py`
-- Uses OpenAI via `pydantic-ai`
+- Uses AWS Bedrock Claude Sonnet 4.5 via `pydantic-ai`
+  - Model: `bedrock:eu.anthropic.claude-sonnet-4-5-20250929-v1:0`
 - Chat history persisted per user with `sqlitedict`
 - System prompts updated dynamically
 
@@ -155,7 +156,11 @@ TOKEN = os.getenv('TELEGRAM_API_KEY')
 
 - `TELEGRAM_API_KEY` - Telegram bot token
 - `QORE_PASSWORD` - Gym booking system password
-- `OPENAI_API_KEY` - For browser-use LLM (if using OpenAI)
+- `AWS_ACCESS_KEY_ID` - AWS credentials for Bedrock (both orchestrator and browser agents)
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials for Bedrock
+- `AWS_REGION` - AWS region for Bedrock (e.g., eu-west-1)
+
+**Note:** `OPENAI_API_KEY` is no longer required - both agents now use AWS Bedrock Claude Sonnet 4.5
 
 **Keep this pattern:**
 
@@ -184,7 +189,8 @@ TOKEN = os.getenv('TELEGRAM_API_KEY')
 
 **Environment variables** (set in Terraform):
 
-- `TELEGRAM_API_KEY`, `OPENAI_API_KEY`, `QORE_PASSWORD`
+- `TELEGRAM_API_KEY`, `QORE_PASSWORD`
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` - For Bedrock (both agents)
 - `DB_PATH=/tmp/app.db` for writable storage in ECS Fargate
 - `HOME`, `XDG_*` dirs all set to `/tmp`
 

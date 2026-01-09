@@ -135,7 +135,9 @@ The following environment variables are configured in Terraform ([terraform/main
 
 - `TELEGRAM_API_KEY` - Telegram bot token
 - `QORE_PASSWORD` - Gym booking system password
-- `OPENAI_API_KEY` - OpenAI API key for browser automation
+- `AWS_ACCESS_KEY_ID` - AWS credentials for Bedrock
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials for Bedrock
+- `AWS_REGION` - AWS region for Bedrock (e.g., eu-west-1)
 - `BROWSER_HEADLESS` - Set to "true" for headless browser mode
 - `TIMEZONE` - Set to "Europe/Brussels"
 - `DB_PATH` - Database path (set to "/tmp/app.db" for writable storage)
