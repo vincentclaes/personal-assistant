@@ -257,11 +257,6 @@ async def run_browser_automation(
         context: Telegram Context object
         task: Task description for browser agent
     """
-    await context.bot.send_message(
-        chat_id=chat_id, text="🔍 Looking for available sessions..."
-    )
-
-    # Create browser and controller
     browser = Browser(headless=BROWSER_HEADLESS)
     controller = create_telegram_aware_controller(chat_id, context)
     llm = ChatOpenAI(model="gpt-4.1")
@@ -280,6 +275,10 @@ async def run_browser_automation(
 
     try:
         await agent.run()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="✅ browser session stopped.",
+        )
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
@@ -660,7 +659,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             booking_constraints: Provide a guideline of when you would like to book the session. Can be broad or narrow.
         """
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        full_task = f"""
+        full_task = dedent(f"""
             
             ## Specific details for the gym session
 
@@ -739,11 +738,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             - Do NOT infer dates from disabled buttons only.
             - Follow DOM order when iterating dates.
             - Stop immediately once a bookable session is found and presented to the user.
+            - IMPORTANT: You can only schedule max 2 personal training sessions per week. 
+              If a pop-up appears when trying to book indicating you've surpassed this limit, 
+              use send_final_update to inform the user and stop the booking process.
 
             TIP:
             It is currently {current_date}. Use the day number text and the month text inside
             each button.cal_btn to identify and select the correct date.
-        """
+        """)
         # Start browser automation in background so message handler stays free
         context.application.create_task(
             run_browser_automation(update.effective_chat.id, context, full_task)
