@@ -265,7 +265,7 @@ async def run_browser_automation(
     # Create browser and controller
     browser = Browser(headless=BROWSER_HEADLESS)
     controller = create_telegram_aware_controller(chat_id, context)
-    llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatOpenAI(model="gpt-4.1")
 
     agent = Agent(
         task=task,
