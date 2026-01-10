@@ -30,9 +30,13 @@ from personal_assistant.chat import (
 from personal_assistant.database import DB_PATH
 from personal_assistant.scheduler import (
     PTBSQLiteJobStore,
-    delete_reminder,
-    list_reminders,
     schedule_cron_job,
+)
+from personal_assistant.scheduler import (
+    delete_reminder as delete_reminder_from_scheduler,
+)
+from personal_assistant.scheduler import (
+    list_reminders as list_reminders_from_scheduler,
 )
 
 
@@ -286,7 +290,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         - "List all my reminders"
         """
         chat_id = update.effective_chat.id
-        reminders = list_reminders(context.job_queue, chat_id)
+        reminders = list_reminders_from_scheduler(context.job_queue, chat_id)
 
         if not reminders:
             return "You have no scheduled reminders."
@@ -328,7 +332,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         to show them their active reminders and their schedules.
         """
         chat_id = update.effective_chat.id
-        result = delete_reminder(context.job_queue, chat_id, cron_expression)
+        result = delete_reminder_from_scheduler(
+            context.job_queue, chat_id, cron_expression
+        )
         logger.info(f"Delete reminder result for chat_id={chat_id}: {result}")
         return result
 
