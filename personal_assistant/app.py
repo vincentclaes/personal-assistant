@@ -71,6 +71,16 @@ def create_telegram_aware_controller(
             Returns:
                 ActionResult with the user's response
             """
+        # Check if we have a valid context (not available in scheduled jobs)
+        if not context.user_data or "browser_state" not in context.user_data:
+            error_msg = "Cannot ask user: browser_state not available (likely called from scheduled job)"
+            logger.error(error_msg)
+            return ActionResult(
+                is_done=False,
+                success=False,
+                error=error_msg,
+            )
+
             state = context.user_data["browser_state"]
 
             # Send question to Telegram using bot
