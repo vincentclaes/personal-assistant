@@ -62,6 +62,7 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
             "pending_question": None,
             "user_response": None,
             "response_event": asyncio.Event(),
+            "lock": asyncio.Lock(),
         }
 
     @controller.registry.action(
@@ -78,6 +79,7 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
             ActionResult with the user's response
         """
         state = context.user_data["browser_state"]
+        lock = state["lock"]
 
         # Send question to Telegram using bot
         await context.bot.send_message(
@@ -85,18 +87,20 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
             text=f"{question}",
         )
 
-        # Mark that we're waiting for response
-        state["waiting_for_response"] = True
-        state["pending_question"] = question
-        state["user_response"] = None
-        state["response_event"].clear()
+        # Mark that we're waiting for response (with lock)
+        async with lock:
+            state["waiting_for_response"] = True
+            state["pending_question"] = question
+            state["user_response"] = None
+            state["response_event"].clear()
 
         # Wait for user to respond
         await state["response_event"].wait()
 
-        # Get the response
-        user_response = state["user_response"]
-        state["waiting_for_response"] = False
+        # Get the response (with lock)
+        async with lock:
+            user_response = state["user_response"]
+            state["waiting_for_response"] = False
         state["pending_question"] = None
 
         memory = f"Asked user: '{question}'. User responded: '{user_response}'"
@@ -441,10 +445,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check if browser is waiting for response
     if "browser_state" in context.user_data:
         state = context.user_data["browser_state"]
-        if state.get("waiting_for_response"):
+        lock = state["lock"]
+
+        async with lock:
+            is_waiting = state.get("waiting_for_response")
+
+        if is_waiting:
             # This is a response to browser agent's question
             logger.info(f"Forwarding response to browser: {message_text}")
-            state["user_response"] = message_text
+            async with lock:
+                state["user_response"] = message_text
             state["response_event"].set()
             return
 
