@@ -6,6 +6,7 @@ import os
 from textwrap import dedent
 from zoneinfo import ZoneInfo
 
+from apscheduler.triggers.cron import CronTrigger
 from browser_use import Agent, Browser, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -17,6 +18,7 @@ from telegram import Update
 from telegram.ext import (
     Application,
     ContextTypes,
+    JobQueue,
     MessageHandler,
     filters,
 )
@@ -36,7 +38,6 @@ from personal_assistant.scheduler import (
 )
 
 
-# Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_API_KEY")
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "false").lower() == "true"
@@ -45,62 +46,70 @@ if not TOKEN:
     raise ValueError("TELEGRAM_API_KEY not found in .env file")
 
 
-def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
+def create_telegram_aware_controller(
+    chat_id: int, context: ContextTypes.DEFAULT_TYPE, chat_with_user: bool = True
+) -> Controller:
     """
     Create a Controller with actions that can interact via Telegram.
 
     Args:
         chat_id: Telegram chat ID to send messages to
         context: Telegram Context object for conversation state
+        chat_with_user: Whether to enable ask_user action for user interaction
     """
     controller = Controller()
 
-    # Store pending question and response in context
-    if "browser_state" not in context.user_data:
-        context.user_data["browser_state"] = {
-            "waiting_for_response": False,
-            "pending_question": None,
-            "user_response": None,
-            "response_event": asyncio.Event(),
-        }
-
-    @controller.registry.action(
-        "Ask the user a question via Telegram and wait for their response"
-    )
-    async def ask_user(question: str) -> ActionResult:
-        """
-        Ask user a question via Telegram and wait for response.
-
-        Args:
-            question: The question to ask the user
-
-        Returns:
-            ActionResult with the user's response
-        """
-        state = context.user_data["browser_state"]
-
-        # Send question to Telegram using bot
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"{question}",
+    if chat_with_user:
+        logger.debug(
+            "Enabling ask_user action in controller so AI agent can ask questions"
         )
+        if "browser_state" not in context.user_data:
+            context.user_data["browser_state"] = {
+                "waiting_for_response": False,
+                "pending_question": None,
+                "user_response": None,
+                "response_event": asyncio.Event(),
+            }
 
-        # Mark that we're waiting for response
-        state["waiting_for_response"] = True
-        state["pending_question"] = question
-        state["user_response"] = None
-        state["response_event"].clear()
+        @controller.registry.action(
+            "Ask the user a question via Telegram and wait for their response"
+        )
+        async def ask_user(question: str) -> ActionResult:
+            """
+            Ask user a question via Telegram and wait for response.
 
-        # Wait for user to respond
-        await state["response_event"].wait()
+            Args:
+                question: The question to ask the user
 
-        # Get the response
-        user_response = state["user_response"]
-        state["waiting_for_response"] = False
-        state["pending_question"] = None
+            Returns:
+                ActionResult with the user's response
+            """
+            state = context.user_data["browser_state"]
 
-        memory = f"Asked user: '{question}'. User responded: '{user_response}'"
-        return ActionResult(extracted_content=user_response, long_term_memory=memory)
+            # Send question to Telegram using bot
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"{question}",
+            )
+
+            # Mark that we're waiting for response
+            state["waiting_for_response"] = True
+            state["pending_question"] = question
+            state["user_response"] = None
+            state["response_event"].clear()
+
+            # Wait for user to respond
+            await state["response_event"].wait()
+
+            # Get the response
+            user_response = state["user_response"]
+            state["waiting_for_response"] = False
+            state["pending_question"] = None
+
+            memory = f"Asked user: '{question}'. User responded: '{user_response}'"
+            return ActionResult(
+                extracted_content=user_response, long_term_memory=memory
+            )
 
     @controller.registry.action(
         "Send the user a final update via Telegram before ending the session"
@@ -144,7 +153,7 @@ def create_telegram_aware_controller(chat_id: int, context: ContextTypes.DEFAULT
 
 
 async def run_browser_automation(
-    chat_id: int, context: ContextTypes.DEFAULT_TYPE, task: str
+    chat_id: int, context: ContextTypes.DEFAULT_TYPE, task: str, chat_with_user: bool
 ):
     """
     Run browser automation with Telegram integration.
@@ -153,9 +162,10 @@ async def run_browser_automation(
         chat_id: Telegram chat ID to send messages to
         context: Telegram Context object
         task: Task description for browser agent
+        chat_with_user: Whether to enable ask_user action for user interaction
     """
     browser = Browser(headless=BROWSER_HEADLESS)
-    controller = create_telegram_aware_controller(chat_id, context)
+    controller = create_telegram_aware_controller(chat_id, context, chat_with_user)
     llm = ChatOpenAI(model="gpt-4.1")
 
     agent = Agent(
@@ -174,21 +184,152 @@ async def run_browser_automation(
         await agent.run()
         await context.bot.send_message(
             chat_id=chat_id,
-            text="✅ browser session stopped.",
+            text="Stopped booking session.",
         )
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming messages."""
+def schedule_agent_task_cron(
+    job_queue: JobQueue,
+    chat_id: int,
+    prompt: str,
+    chat_with_user: bool,
+    cron_expression: str,
+    timezone_str: str = "Europe/Brussels",
+    start_datetime: datetime.datetime | None = None,
+    end_datetime: datetime.datetime | None = None,
+) -> str:
+    """
+    Schedule an agent task to run on a cron schedule.
 
+    Args:
+        job_queue: Telegram JobQueue instance
+        chat_id: Chat ID to send results to
+        prompt: Task prompt for the agent (e.g., "Book a gym session tomorrow at 6pm")
+        chat_with_user: Whether the scheduled agent should be allowed to ask the user questions.
+        cron_expression: 6-field cron string (second minute hour day month day_of_week)
+        timezone_str: Timezone for the schedule
+        start_datetime: Optional start time for the schedule
+        end_datetime: Optional end time for the schedule
+
+    Returns:
+        Confirmation message with schedule details
+    """
+    # Parse cron expression
+    parts = cron_expression.split()
+    if len(parts) != 6:
+        return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
+
+    second, minute, hour, day, month, day_of_week = parts
+
+    # Set timezone
+    tz = ZoneInfo(timezone_str)
+
+    # Create trigger with all parameters
+    trigger = CronTrigger(
+        second=second,
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+        start_date=start_datetime,
+        end_date=end_datetime,
+        timezone=tz,
+    )
+
+    job_id = f"agent_task_{chat_id}_{cron_expression.replace(' ', '_')}"
+    job_queue.run_custom(
+        callback=scheduled_agent_callback,
+        job_kwargs={
+            "trigger": trigger,
+            "id": job_id,
+            "replace_existing": True,
+        },
+        name=job_id,
+        chat_id=chat_id,
+        data={"message": prompt, "chat_id": chat_id, "chat_with_user": chat_with_user},
+    )
+
+    # Build confirmation message
+    details = "✅ Agent task scheduled:\n"
+    details += f"📝 Prompt: '{prompt}'\n"
+    details += f"⏱️ Schedule: {cron_expression}\n"
+    details += f"🌍 Timezone: {timezone_str}\n"
+    if start_datetime:
+        details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "▶️ Starts: Immediately\n"
+    if end_datetime:
+        details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "⏹️ Ends: Never (runs indefinitely)\n"
+
+    return details
+
+
+async def scheduled_agent_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    JobQueue callback for executing scheduled agent tasks.
+
+    Runs the orchestrator agent with a scheduled prompt using fresh context
+    (no chat history). The agent can use any tool (book_gym, schedule_reminder, etc.).
+    Results are sent directly to the user via Telegram.
+
+    Args:
+        context: Telegram context containing job data and bot instance
+        chat_with_user: Whether to enable ask_user action for user interaction.
+                        Sometimes a user just wants to run a task without interaction,
+                        for example when scheduling a task that runs at night.
+    """
+    job = context.job
+    message = job.data["message"]
+    chat_id = job.data["chat_id"]
+    chat_with_user = job.data["chat_with_user"]
+
+    logger.info(f"🤖 SCHEDULED AGENT TASK for chat_id={chat_id}: {message}")
+    try:
+        # Create fresh orchestrator agent
+        orchestrator_agent = orchestrator_agent_init(
+            context=context, chat_id=chat_id, chat_with_user=chat_with_user
+        )
+
+        # Run with empty message history (fresh context)
+        result = await orchestrator_agent.run(message, message_history=[])
+
+        # Send result to user
+        await context.bot.send_message(chat_id=chat_id, text=result.output)
+        logger.info("✅ Scheduled agent task completed successfully")
+
+    except Exception as e:
+        error_msg = f"❌ Scheduled task failed: {e}"
+        await context.bot.send_message(chat_id=chat_id, text=error_msg)
+        logger.error(f"❌ Error in scheduled agent task: {e}")
+
+
+def orchestrator_agent_init(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    chat_with_user: bool,
+) -> PydanticAgent:
+    """
+    Create and configure orchestrator agent with all tools.
+
+    Args:
+        context: Telegram context for job queue and bot access
+        chat_id: Chat ID for sending messages and job identification
+        chat_with_user: Whether to enable ask_user action for user interaction
+
+    Returns:
+        Configured PydanticAgent with all tools registered
+    """
     orchestrator_agent = PydanticAgent(
         "openai:gpt-5-mini", system_prompt=get_agent_system_prompt()
     )
 
     @orchestrator_agent.tool
-    def schedule_reminder(
+    def _schedule_reminder(
         ctx: RunContext,
         message: str,
         cron_expression: str,
@@ -257,7 +398,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         """
         details = schedule_cron_job(
             job_queue=context.job_queue,
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             message=message,
             cron_expression=cron_expression,
             timezone_str=timezone_str,
@@ -268,7 +409,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return details
 
     @orchestrator_agent.tool
-    def list_reminders(ctx: RunContext) -> str:
+    def _list_reminders(ctx: RunContext) -> str:
         """
         List all scheduled reminders for the current user.
 
@@ -285,7 +426,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         - "Show me my scheduled reminders"
         - "List all my reminders"
         """
-        chat_id = update.effective_chat.id
         reminders = list_reminders(context.job_queue, chat_id)
 
         if not reminders:
@@ -298,7 +438,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return result
 
     @orchestrator_agent.tool
-    def delete_reminder(ctx: RunContext, cron_expression: str) -> str:
+    def _delete_reminder(ctx: RunContext, cron_expression: str) -> str:
         """
         Delete a specific reminder by its cron expression.
 
@@ -327,25 +467,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         Note: To help users identify which reminder to delete, use the list_reminders tool first
         to show them their active reminders and their schedules.
         """
-        chat_id = update.effective_chat.id
         result = delete_reminder(context.job_queue, chat_id, cron_expression)
         logger.info(f"Delete reminder result for chat_id={chat_id}: {result}")
         return result
 
     @orchestrator_agent.tool
     async def book_gym(ctx: RunContext, booking_constraints: str) -> str:
-        """Book a personal training gym session. Only input we need is some indication of when to book te session.
+        """Book a personal training gym session.
+        Only input we need is some indication of when to book the session.
         The rest is handled by the browser agent.
 
         Args:
             booking_constraints: Provide a guideline of when you would like to book the session. Can be broad or narrow.
+
+        Returns: A confirmation message indicating that the booking process has started.
         """
         current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         full_task = dedent(f"""
-            
+
             ## Specific details for the gym session
 
             {booking_constraints}
+
+            ## Communication Guidelines
+
+            - Do NOT use words like "Booked", "Confirmed", or "Secured" until AFTER the booking is complete
+            - Be clear and concise in all messages
+            - Only confirm success after verifying the booking in "Mijn Reservaties"
 
             ## General steps to book a gym session
 
@@ -430,9 +578,95 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         """)
         # Start browser automation in background so message handler stays free
         context.application.create_task(
-            run_browser_automation(update.effective_chat.id, context, full_task)
+            run_browser_automation(chat_id, context, full_task, chat_with_user)
         )
-        return "On it!"
+        return "Checking availability now ..."
+
+    @orchestrator_agent.tool
+    def schedule_agent_task(
+        ctx: RunContext,
+        prompt: str,
+        chat_with_user: bool,
+        cron_expression: str,
+        start_datetime: datetime.datetime | None = None,
+        end_datetime: datetime.datetime | None = None,
+        timezone_str: str = "Europe/Brussels",
+    ) -> str:
+        """
+        Schedule a task for the AI agent to execute at a specific time.
+
+        Use this when the user wants to schedule an automated action (like booking,
+        checking availability, sending reminders) to run at a future time without
+        manual confirmation during execution.
+
+        The scheduled agent will run with fresh context (no chat history) and can
+        use any available tool (book_gym, schedule_reminder, etc.). Results and
+        notifications will be sent directly to the user via Telegram.
+
+        Args:
+            prompt: The task/prompt for the agent to execute when scheduled time arrives.
+                Examples:
+                - "Book a gym session tomorrow at 6pm"
+                - "Check if there are available gym slots this week"
+                - "Send me a summary of my scheduled reminders"
+
+            chat_with_user: Whether the scheduled agent should be allowed to ask the user questions
+                via Telegram using the ask_user action. Set to False if no interaction is desired,
+                this can happen when scheduling tasks that run at night or when the user is unavailable.
+                Examples:
+                - True: If the task may require user input or confirmation during execution.
+                - False: If the task should run autonomously without user interaction.
+
+            cron_expression: 6-field cron string that defines when to run the task.
+                Format: "second minute hour day month day_of_week"
+
+                Examples:
+                - "0 0 0 * * *" = Every day at midnight
+                - "0 0 8 * * 1-5" = Every weekday at 8:00 AM
+                - "0 30 23 * * 0" = Every Sunday at 11:30 PM
+
+            start_datetime: Optional. When to start executing this schedule.
+                If not provided, starts immediately.
+
+            end_datetime: Optional. When to stop executing this schedule.
+                If not provided, runs indefinitely until manually cancelled.
+
+            timezone_str: Timezone for the schedule (default: "Europe/Brussels").
+
+        Returns:
+            Confirmation message with schedule details
+
+        Usage examples:
+        - Schedule midnight gym booking check:
+          schedule_agent_task(
+              prompt="Book a gym session tomorrow at 6pm",
+              cron_expression="0 0 0 * * *"
+          )
+
+        - Schedule weekly availability check every Monday morning:
+          schedule_agent_task(
+              prompt="Check if there are available gym slots this week and let me know",
+              cron_expression="0 0 9 * * 1"
+          )
+        """
+        details = schedule_agent_task_cron(
+            job_queue=context.job_queue,
+            chat_id=chat_id,
+            prompt=prompt,
+            chat_with_user=chat_with_user,
+            cron_expression=cron_expression,
+            timezone_str=timezone_str,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
+        logger.info(details)
+        return details
+
+    return orchestrator_agent
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle incoming messages."""
 
     user = update.effective_user
     message_text = update.message.text
@@ -453,6 +687,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_history = get_user_chat_history(user_id)
     # Update system prompt in history to ensure latest prompt is used
     chat_history = update_system_prompt_in_history(chat_history)
+
+    # Create orchestrator agent with all tools
+    orchestrator_agent = orchestrator_agent_init(
+        context=context, chat_id=update.effective_chat.id, chat_with_user=True
+    )
 
     # Use orchestrator agent to decide what to do
     logger.info("🤔 Orchestrator agent analyzing message...")

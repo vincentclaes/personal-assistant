@@ -7,7 +7,7 @@ import pytest
 import pytest_asyncio
 from telegram.ext import Application
 
-from personal_assistant.app import create_application
+from personal_assistant.app import create_application, schedule_agent_task_cron
 from personal_assistant.scheduler import (
     delete_reminder,
     list_reminders,
@@ -108,3 +108,32 @@ async def test_delete_reminder(application: Application):
     assert "deleted" in result.lower() or "removed" in result.lower()
     reminders_after = list_reminders(job_queue, chat_id)
     assert len(reminders_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_schedule_agent_task(application: Application):
+    """Test scheduling an agent task using the Telegram Application's job_queue."""
+    job_queue = application.job_queue
+    chat_id = 123456
+    prompt = "Book a gym session tomorrow at 6pm"
+    cron_expression = "0 0 0 * * *"
+
+    # Schedule using the function from scheduler module
+    result = schedule_agent_task_cron(
+        job_queue=job_queue,
+        chat_id=chat_id,
+        prompt=prompt,
+        cron_expression=cron_expression,
+        chat_with_user=True,
+    )
+
+    # Verify confirmation message returned
+    assert "✅ Agent task scheduled:" in result
+    assert prompt in result
+    assert cron_expression in result
+
+    # Verify job is retrievable from scheduler by the id
+    job_id = f"agent_task_{chat_id}_{cron_expression.replace(' ', '_')}"
+    scheduler = job_queue.scheduler
+    aps_job = scheduler.get_job(job_id)
+    assert aps_job is not None
