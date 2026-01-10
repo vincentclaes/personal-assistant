@@ -165,7 +165,7 @@ def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     reminders = []
 
     # Use regex pattern to filter jobs by chat_id in the job name
-    pattern = f"^reminder_{chat_id}_"
+    pattern = f"_{chat_id}_"
     jobs = job_queue.jobs(pattern=pattern)
 
     for job in jobs:

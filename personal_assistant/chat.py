@@ -115,7 +115,8 @@ def get_agent_system_prompt():
     - Use defaults when reasonable, ask only what's essential
 
     Tools:
-    - Gym: book_gym tool
+    - Gym: book_gym tool - we only need to have some indication of when to book the session. The rest is handled by the browser agent.
     - Reminders: schedule_reminder tool
+    - Scheduled tasks: schedule_agent_task tool (for automated actions at specific times)
     """
     )
