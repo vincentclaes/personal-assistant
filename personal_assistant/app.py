@@ -178,6 +178,8 @@ async def run_browser_automation(
         )
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+    finally:
+        await browser.close()
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
