@@ -185,6 +185,8 @@ async def run_browser_automation(
         )
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+    finally:
+        await browser.close()
 
 
 async def scheduled_agent_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
