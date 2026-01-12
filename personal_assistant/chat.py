@@ -3,6 +3,7 @@
 
 import datetime
 from textwrap import dedent
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 from pydantic_ai.messages import (
@@ -105,7 +106,7 @@ def get_agent_system_prompt():
         f"""
     You are a personal assistant bot. Brevity in responses is critical.
 
-    Current datetime: {datetime.datetime.now()}
+    Current datetime: {datetime.datetime.now(ZoneInfo("Europe/Brussels"))}
 
     RESPONSE RULES (MANDATORY):
     - Maximum 2-3 short sentences per response
@@ -115,7 +116,8 @@ def get_agent_system_prompt():
     - Use defaults when reasonable, ask only what's essential
 
     Tools:
-    - Gym: book_gym tool
-    - Reminders: schedule_reminder tool
+    - Gym: book_gym tool - we only need to have some indication of when to book the session. The rest is handled by the browser agent.
+    - Reminders: schedule reminder / list reminders / get reminder / delete reminder
+    - Scheduled tasks: schedule_agent_task tool (for automated actions at specific times)
     """
     )

@@ -151,7 +151,7 @@ def schedule_cron_job(
     return details
 
 
-def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
+def list(job_queue: JobQueue, chat_id: int) -> list[str]:
     """
     List all reminders for a specific chat_id.
 
@@ -165,7 +165,7 @@ def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     reminders = []
 
     # Use regex pattern to filter jobs by chat_id in the job name
-    pattern = f"^reminder_{chat_id}_"
+    pattern = f"_{chat_id}_"
     jobs = job_queue.jobs(pattern=pattern)
 
     for job in jobs:
@@ -175,7 +175,7 @@ def list_reminders(job_queue: JobQueue, chat_id: int) -> list[str]:
     return reminders
 
 
-def delete_reminder(job_queue: JobQueue, chat_id: int, cron_expression: str) -> str:
+def delete(job_queue: JobQueue, chat_id: int, cron_expression: str) -> str:
     """
     Delete a specific reminder by its cron expression.
 
@@ -199,6 +199,87 @@ def delete_reminder(job_queue: JobQueue, chat_id: int, cron_expression: str) -> 
         return f"✅ Reminder deleted successfully (ID: {job_id})"
     else:
         return "❌ No reminder found with the specified schedule"
+
+
+def schedule_agent_task_cron(
+    job_queue: JobQueue,
+    chat_id: int,
+    prompt: str,
+    chat_with_user: bool,
+    cron_expression: str,
+    callback,
+    timezone_str: str = "Europe/Brussels",
+    start_datetime: datetime.datetime | None = None,
+    end_datetime: datetime.datetime | None = None,
+) -> str:
+    """
+    Schedule an agent task to run on a cron schedule.
+
+    Args:
+        job_queue: Telegram JobQueue instance
+        chat_id: Chat ID to send results to
+        prompt: Task prompt for the agent (e.g., "Book a gym session tomorrow at 6pm")
+        chat_with_user: Whether the scheduled agent should be allowed to ask the user questions.
+        cron_expression: 6-field cron string (second minute hour day month day_of_week)
+        callback: Async callback function to execute when the job triggers
+        timezone_str: Timezone for the schedule
+        start_datetime: Optional start time for the schedule
+        end_datetime: Optional end time for the schedule
+
+    Returns:
+        Confirmation message with schedule details
+    """
+    # Parse cron expression
+    parts = cron_expression.split()
+    if len(parts) != 6:
+        return "❌ Invalid cron expression. Must have exactly 6 fields: second minute hour day month day_of_week"
+
+    second, minute, hour, day, month, day_of_week = parts
+
+    # Set timezone
+    tz = ZoneInfo(timezone_str)
+
+    # Create trigger with all parameters
+    trigger = CronTrigger(
+        second=second,
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=day_of_week,
+        start_date=start_datetime,
+        end_date=end_datetime,
+        timezone=tz,
+    )
+
+    job_id = f"agent_task_{chat_id}_{cron_expression.replace(' ', '_')}"
+    job_queue.run_custom(
+        callback=callback,
+        job_kwargs={
+            "trigger": trigger,
+            "id": job_id,
+            "replace_existing": True,
+        },
+        name=job_id,
+        chat_id=chat_id,
+        data={"message": prompt, "chat_id": chat_id, "chat_with_user": chat_with_user},
+    )
+
+    # Build confirmation message
+    details = "✅ Agent task scheduled:\n"
+    details += f"📝 Prompt: '{prompt}'\n"
+    details += f"⏱️ Schedule: {cron_expression}\n"
+    details += f"🌍 Timezone: {timezone_str}\n"
+    if start_datetime:
+        details += f"▶️ Starts: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "▶️ Starts: Immediately\n"
+    if end_datetime:
+        details += f"⏹️ Ends: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    else:
+        details += "⏹️ Ends: Never (runs indefinitely)\n"
+
+    return details
 
 
 async def reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:

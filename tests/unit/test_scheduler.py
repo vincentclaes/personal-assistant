@@ -9,8 +9,9 @@ from telegram.ext import Application
 
 from personal_assistant.app import create_application
 from personal_assistant.scheduler import (
-    delete_reminder,
-    list_reminders,
+    delete,
+    list,
+    schedule_agent_task_cron,
     schedule_cron_job,
 )
 
@@ -75,7 +76,7 @@ async def test_list_reminders(application: Application):
     )
 
     # List reminders
-    reminders = list_reminders(job_queue, chat_id)
+    reminders = list(job_queue, chat_id)
 
     # Verify reminder is in the list
     assert len(reminders) == 1
@@ -98,13 +99,48 @@ async def test_delete_reminder(application: Application):
     )
 
     # Verify it exists
-    reminders = list_reminders(job_queue, chat_id)
+    reminders = list(job_queue, chat_id)
     assert len(reminders) == 1
 
     # Delete the reminder
-    result = delete_reminder(job_queue, chat_id, cron_expression)
+    result = delete(job_queue, chat_id, cron_expression)
 
     # Verify it was deleted
     assert "deleted" in result.lower() or "removed" in result.lower()
-    reminders_after = list_reminders(job_queue, chat_id)
+    reminders_after = list(job_queue, chat_id)
     assert len(reminders_after) == 0
+
+
+async def _dummy_callback(context):
+    """Dummy callback for testing."""
+    pass
+
+
+@pytest.mark.asyncio
+async def test_schedule_agent_task(application: Application):
+    """Test scheduling an agent task using the Telegram Application's job_queue."""
+    job_queue = application.job_queue
+    chat_id = 123456
+    prompt = "Book a gym session tomorrow at 6pm"
+    cron_expression = "0 0 0 * * *"
+
+    # Schedule using the function from scheduler module
+    result = schedule_agent_task_cron(
+        job_queue=job_queue,
+        chat_id=chat_id,
+        prompt=prompt,
+        chat_with_user=True,
+        cron_expression=cron_expression,
+        callback=_dummy_callback,
+    )
+
+    # Verify confirmation message returned
+    assert "✅ Agent task scheduled:" in result
+    assert prompt in result
+    assert cron_expression in result
+
+    # Verify job is retrievable from scheduler by the id
+    job_id = f"agent_task_{chat_id}_{cron_expression.replace(' ', '_')}"
+    scheduler = job_queue.scheduler
+    aps_job = scheduler.get_job(job_id)
+    assert aps_job is not None
