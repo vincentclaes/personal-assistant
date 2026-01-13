@@ -21,7 +21,7 @@ from telegram.ext import (
     filters,
 )
 
-from personal_assistant import chat, scheduler
+from personal_assistant import calendar, chat, scheduler
 from personal_assistant.database import DB_PATH
 
 
@@ -71,15 +71,15 @@ def create_telegram_aware_controller(
             Returns:
                 ActionResult with the user's response
             """
-        # Check if we have a valid context (not available in scheduled jobs)
-        if not context.user_data or "browser_state" not in context.user_data:
-            error_msg = "Cannot ask user: browser_state not available (likely called from scheduled job)"
-            logger.error(error_msg)
-            return ActionResult(
-                is_done=False,
-                success=False,
-                error=error_msg,
-            )
+            # Check if we have a valid context (not available in scheduled jobs)
+            if not context.user_data or "browser_state" not in context.user_data:
+                error_msg = "Cannot ask user: browser_state not available (likely called from scheduled job)"
+                logger.error(error_msg)
+                return ActionResult(
+                    is_done=False,
+                    success=False,
+                    error=error_msg,
+                )
 
             state = context.user_data["browser_state"]
 
@@ -582,6 +582,57 @@ def orchestrator_agent_init(
         )
         logger.info(details)
         return details
+
+    @orchestrator_agent.tool
+    async def create_calendar_event(
+        ctx: RunContext,
+        title: str,
+        start_datetime: datetime.datetime,
+        duration_minutes: int = 60,
+    ) -> str:
+        """
+        Create a calendar event and send it as an .ics file via Telegram.
+
+        Use this when the user wants to create a calendar event, meeting, or appointment.
+        The .ics file can be opened to add the event to any calendar app.
+
+        Args:
+            title: The event title/name (e.g., "Team Sync", "Dentist appointment")
+            start_datetime: When the event starts (timezone-aware datetime)
+            duration_minutes: Event duration in minutes (default: 60)
+
+        Returns:
+            Confirmation message that the calendar event was created and sent
+        """
+        import tempfile
+        from pathlib import Path
+
+        # Generate .ics content
+        ics_content = calendar.generate_ics(title, start_datetime, duration_minutes)
+
+        # Write to temp file and send via Telegram
+        with tempfile.NamedTemporaryFile(
+            mode="wb", suffix=".ics", delete=False
+        ) as tmp_file:
+            tmp_file.write(ics_content)
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            # Create a safe filename from the title
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)
+            safe_title = safe_title.replace(" ", "_")[:50]
+            filename = f"{safe_title}.ics"
+
+            with open(tmp_path, "rb") as f:
+                await context.bot.send_document(
+                    chat_id=chat_id,
+                    document=f,
+                    filename=filename,
+                )
+        finally:
+            tmp_path.unlink()  # Clean up temp file
+
+        return f"Calendar event '{title}' created and sent."
 
     return orchestrator_agent
 
