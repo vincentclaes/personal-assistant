@@ -89,3 +89,28 @@ async def test_handle_message_delete_reminder(mock_user_db):
         # scheduler.delete(job_queue, chat_id, cron_expression)
         assert call_args[0][2] == "0 0 9 * * *"
         assert isinstance(response, AgentRunResult)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_create_calendar_event(mock_user_db):
+    """Test that 'create calendar event' calls calendar.generate_ics and sends document."""
+    with patch("personal_assistant.calendar.generate_ics") as mock_generate:
+        mock_generate.return_value = b"BEGIN:VCALENDAR\nEND:VCALENDAR"
+
+        mock_update = create_mock_update(
+            chat_id=123,
+            message_text="create a meeting called Team Sync tomorrow at 3pm",
+        )
+        mock_context = create_mock_context()
+        mock_context.bot = AsyncMock()
+        mock_context.bot.send_document = AsyncMock()
+
+        response = await handle_message(mock_update, mock_context)
+
+        mock_generate.assert_called_once()
+        # Verify title was passed
+        call_args = mock_generate.call_args
+        assert call_args[0][0] == "Team Sync"  # title
+        # Verify document was sent
+        mock_context.bot.send_document.assert_called_once()
+        assert isinstance(response, AgentRunResult)
