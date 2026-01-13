@@ -8,6 +8,7 @@ dependencies = [
     "apscheduler>=3.10.0",
     "browser-use[cli]==0.11.2",
     "croniter>=6.0.0",
+    "icalendar>=6.3.2",
     "langchain-openai>=0.2.0",
     "loguru>=0.7.0",
     "pydantic-ai>=1.38.0",
